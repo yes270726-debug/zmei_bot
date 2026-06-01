@@ -945,7 +945,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Zmei bot is alive! 🐍")
+        self.wfile.write(b"Zmei bot is alive!")
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
