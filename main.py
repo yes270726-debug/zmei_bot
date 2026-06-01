@@ -12,9 +12,12 @@ TELEGRAM_TOKEN = "8313357893:AAGNbxBUBc2CzwRvp7BKyptWcomgKq1ii9k"
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# ========== АДМИНЫ (КТО МОЖЕТ УПРАВЛЯТЬ) ==========
-ADMIN_IDS = [8199816124]           # Твой ID (если правильный)
-ADMIN_USERNAMES = ["MJyr23", "lor_win", "lfobot777"]   # Твой username добавлен!
+# ========== АДМИНЫ (ТОЛЬКО ПО ТВОЕМУ ID) ==========
+# ВСТАВЬ СЮДА СВОЙ ID, КОТОРЫЙ ДАСТ @userinfobot
+MY_USER_ID = 8199816124  # ← ЗАМЕНИ НА СВОЙ ID, ЕСЛИ ЭТОТ НЕ РАБОТАЕТ
+
+def is_admin(user_id):
+    return user_id == MY_USER_ID
 
 # ========== ВЕБ-СЕРВЕР ДЛЯ RENDER ==========
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -34,18 +37,10 @@ def run_web_server():
 # ========== СТАТУС БОТА ==========
 bot_enabled = True
 
-# ========== ПРОВЕРКА АДМИНА ==========
-def is_admin(user_id, username):
-    if user_id in ADMIN_IDS:
-        return True
-    if username and username in ADMIN_USERNAMES:
-        return True
-    return False
-
 # ========== 1. УДАЛИТЬ УЧАСТНИКА ==========
 @dp.message(Command("убрать"))
 async def kick_user(message: types.Message):
-    if not is_admin(message.from_user.id, message.from_user.username):
+    if not is_admin(message.from_user.id):
         await message.reply("❌ У тебя нет прав на эту команду!")
         return
     
@@ -75,7 +70,7 @@ async def kick_user(message: types.Message):
 # ========== 2. ЗАБАНИТЬ ==========
 @dp.message(Command("бан"))
 async def ban_user(message: types.Message):
-    if not is_admin(message.from_user.id, message.from_user.username):
+    if not is_admin(message.from_user.id):
         await message.reply("❌ У тебя нет прав!")
         return
     
@@ -105,7 +100,7 @@ async def ban_user(message: types.Message):
 # ========== 3. ОЧИСТИТЬ ЧАТ ==========
 @dp.message(Command("очистить"))
 async def clear_chat(message: types.Message):
-    if not is_admin(message.from_user.id, message.from_user.username):
+    if not is_admin(message.from_user.id):
         await message.reply("❌ У тебя нет прав!")
         return
     
@@ -136,7 +131,7 @@ async def clear_chat(message: types.Message):
 # ========== 4. ПРЕДУПРЕЖДЕНИЕ ==========
 @dp.message(Command("варн"))
 async def warn_user(message: types.Message):
-    if not is_admin(message.from_user.id, message.from_user.username):
+    if not is_admin(message.from_user.id):
         await message.reply("❌ У тебя нет прав!")
         return
     
@@ -147,35 +142,35 @@ async def warn_user(message: types.Message):
     user = message.reply_to_message.from_user
     await message.reply(f"⚠️ ПРЕДУПРЕЖДЕНИЕ {user.full_name}!\nПожалуйста, соблюдай правила чата!")
 
-# ========== 5. ПРИВЕТСТВИЕ НОВИЧКОВ ==========
+# ========== 5. ВКЛ/ВЫКЛ БОТА ==========
+@dp.message(Command("отключить"))
+async def disable_bot(message: types.Message):
+    if not is_admin(message.from_user.id):
+        await message.reply("❌ У тебя нет прав!")
+        return
+    global bot_enabled
+    bot_enabled = False
+    await message.reply("🔴 Бот ОТКЛЮЧЁН!")
+
+@dp.message(Command("включить"))
+async def enable_bot(message: types.Message):
+    if not is_admin(message.from_user.id):
+        await message.reply("❌ У тебя нет прав!")
+        return
+    global bot_enabled
+    bot_enabled = True
+    await message.reply("🟢 Бот ВКЛЮЧЁН!")
+
+# ========== 6. ПРИВЕТСТВИЕ НОВИЧКОВ ==========
 @dp.message()
 async def welcome_new_member(message: types.Message):
     if message.new_chat_members:
         for member in message.new_chat_members:
             if member.id != bot.id:
                 await message.reply(
-                    f"🐍 Добро пожаловать, {member.full_name}! Приятно познакомиться!\n"
-                    f"Я Змей, хранитель этого чата. Будь вежлив и уважай других!"
+                    f"🐍 Добро пожаловать, {member.full_name}!\n"
+                    f"Я Змей, хранитель этого чата. Будь вежлив!"
                 )
-
-# ========== 6. ВКЛ/ВЫКЛ БОТА ==========
-@dp.message(Command("отключить"))
-async def disable_bot(message: types.Message):
-    if not is_admin(message.from_user.id, message.from_user.username):
-        await message.reply("❌ У тебя нет прав!")
-        return
-    global bot_enabled
-    bot_enabled = False
-    await message.reply("🔴 Бот ОТКЛЮЧЁН! Админы могут включить командой /включить")
-
-@dp.message(Command("включить"))
-async def enable_bot(message: types.Message):
-    if not is_admin(message.from_user.id, message.from_user.username):
-        await message.reply("❌ У тебя нет прав!")
-        return
-    global bot_enabled
-    bot_enabled = True
-    await message.reply("🟢 Бот ВКЛЮЧЁН!")
 
 # ========== 7. КОМАНДЫ /mods, /stats, /creator ==========
 MODS = [
@@ -190,39 +185,37 @@ MODS = [
 @dp.message(Command("mods"))
 async def mods_cmd(message: types.Message):
     mods_list = "\n".join([f"• {m}" for m in MODS])
-    await message.answer(f"📚 МОДЫ:\n\n{mods_list}\n\nНапиши название любого мода, я расскажу!")
+    await message.answer(f"📚 МОДЫ:\n\n{mods_list}")
 
 @dp.message(Command("stats"))
 async def stats_cmd(message: types.Message):
     await message.answer(
-        f"📊 СТАТИСТИКА:\n\n"
-        f"🐍 Ответов: 5000+\n"
-        f"🎮 Модов: {len(MODS)}\n"
-        f"👑 Админы: @MJyr23, @lor_win, @lfobot777\n"
+        f"📊 СТАТИСТИКА:\n"
+        f"🐍 Модов: {len(MODS)}\n"
+        f"👑 Админ: @lfobot777\n"
         f"💬 Статус: 🟢 РАБОТАЮ"
     )
 
 @dp.message(Command("creator"))
 async def creator_cmd(message: types.Message):
-    await message.answer("👑 СОЗДАТЕЛЬ - ЛЕГЕНДА! 🔥\n\nОн создал все эти крутые моды и меня самого!\nЯ его обожаю и уважаю больше всех! ❤️")
+    await message.answer("👑 СОЗДАТЕЛЬ - ЛЕГЕНДА! 🔥")
 
 # ========== 8. ОБЫЧНЫЕ ОТВЕТЫ ==========
 BASIC_ANSWERS = {
-    "привет": ["Привет, зайка! 🐍", "Здарова, пушистый! 👋", "Приветик! Как сам? 😊"],
-    "как дела": ["Норм, греюсь на солнышке! А у тебя?", "Отлично, рассказывай давай!", "Хорошо, сам как?"],
-    "пока": ["Пока, зайка! Заходи ещё! 👋", "До встречи, пушистый!", "Пока-пока, буду ждать!"],
-    "спасибо": ["Пожалуйста! 😊", "Не за что, обращайся!", "Всегда рад помочь!"],
-    "люблю": ["И я тебя люблю, зайка! 💖", "Ой, спасибо! Я тоже тебя!"],
-    "создатель": ["👑 СОЗДАТЕЛЬ - ЛЕГЕНДА! Обожаю его!", "Мой создатель красавчик, гений!"],
-    "чат": ["Vitalem - лучший чат! 💬", "Наш чат топ, остальные мимо!"],
+    "привет": ["Привет, зайка! 🐍", "Здарова, пушистый! 👋", "Приветик! 😊"],
+    "как дела": ["Норм, а у тебя?", "Отлично, рассказывай!", "Хорошо, сам как?"],
+    "пока": ["Пока, зайка! 👋", "До встречи!", "Пока-пока!"],
+    "спасибо": ["Пожалуйста! 😊", "Не за что!", "Всегда рад помочь!"],
+    "люблю": ["И я тебя люблю! 💖", "Ой, спасибо!"],
+    "создатель": ["👑 СОЗДАТЕЛЬ - ЛЕГЕНДА!"],
 }
 
 EXTRA_ANSWERS = [
-    "Интересно ты говоришь, зайка! Продолжай!",
-    "Я тебя слушаю, любимый! 👂",
-    "Ну и что дальше, сладкий?",
-    "Змей внимает тебе! Давай-давай!",
-    "Расскажи подробнее, пушистый!"
+    "Интересно! Продолжай!",
+    "Я слушаю тебя! 👂",
+    "Ну и что дальше?",
+    "Расскажи подробнее!",
+    "Змей внимает тебе!"
 ]
 
 @dp.message()
@@ -235,15 +228,14 @@ async def snake_reply(message: types.Message):
     if not text:
         return
     
-    # Приветствие новичков (уже обработано выше через message.new_chat_members)
+    # Приветствие новичков (уже обработано выше)
     
     # Проверка на моды
     for mod in MODS:
         if mod.lower() in text:
-            await message.answer(f"О, {mod}! Классный мод! Я его очень ценю! 🔥")
+            await message.answer(f"О, {mod}! Классный мод! 🔥")
             return
     
-    # Поиск ответа
     for key in BASIC_ANSWERS:
         if key in text:
             await message.answer(random.choice(BASIC_ANSWERS[key]))
@@ -254,8 +246,8 @@ async def snake_reply(message: types.Message):
 # ========== ЗАПУСК ==========
 async def main():
     print("=" * 50)
-    print("🐍 ЗМЕЙ ЗАПУЩЕН! АДМИН-КОМАНДЫ РАБОТАЮТ!")
-    print("Админы: @MJyr23, @lor_win, @lfobot777")
+    print("🐍 ЗМЕЙ ЗАПУЩЕН!")
+    print(f"👑 Админ ID: {MY_USER_ID}")
     print("Команды: /убрать, /бан, /очистить, /варн, /отключить, /включить")
     print("=" * 50)
     await dp.start_polling(bot)
