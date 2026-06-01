@@ -12,11 +12,21 @@ TELEGRAM_TOKEN = "8313357893:AAGNbxBUBc2CzwRvp7BKyptWcomgKq1ii9k"
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# ========== АДМИН (ТВОЙ ID) ==========
-ADMIN_ID = 8199816124  # ТВОЙ ID
+# ========== ТВОЙ РЕАЛЬНЫЙ ID (НЕ АНОНИМНЫЙ) ==========
+REAL_ADMIN_ID = 8199816124
 
-def is_admin(user_id):
-    return user_id == ADMIN_ID
+# ========== ПРОВЕРКА ПРАВ (РАБОТАЕТ В АНОНИМКЕ) ==========
+async def is_chat_admin(user_id: int, chat_id: int) -> bool:
+    # Сначала проверим по реальному ID (на случай, если анонимка выключена)
+    if user_id == REAL_ADMIN_ID:
+        return True
+    
+    # Если не совпало — проверим, есть ли у пользователя права админа в чате
+    try:
+        chat_member = await bot.get_chat_member(chat_id, user_id)
+        return chat_member.status in ["creator", "administrator"]
+    except:
+        return False
 
 # ========== ВЕБ-СЕРВЕР ДЛЯ RENDER ==========
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -39,7 +49,7 @@ bot_enabled = True
 # ========== 1. ВКЛЮЧИТЬ/ОТКЛЮЧИТЬ БОТА ==========
 @dp.message(Command("включить"))
 async def enable_bot(message: types.Message):
-    if not is_admin(message.from_user.id):
+    if not await is_chat_admin(message.from_user.id, message.chat.id):
         await message.reply("❌ У тебя нет прав!")
         return
     global bot_enabled
@@ -48,7 +58,7 @@ async def enable_bot(message: types.Message):
 
 @dp.message(Command("отключить"))
 async def disable_bot(message: types.Message):
-    if not is_admin(message.from_user.id):
+    if not await is_chat_admin(message.from_user.id, message.chat.id):
         await message.reply("❌ У тебя нет прав!")
         return
     global bot_enabled
@@ -58,7 +68,7 @@ async def disable_bot(message: types.Message):
 # ========== 2. УДАЛИТЬ УЧАСТНИКА ==========
 @dp.message(Command("убрать"))
 async def kick_user(message: types.Message):
-    if not is_admin(message.from_user.id):
+    if not await is_chat_admin(message.from_user.id, message.chat.id):
         await message.reply("❌ У тебя нет прав!")
         return
     
@@ -91,7 +101,7 @@ async def kick_user(message: types.Message):
 # ========== 3. ЗАБАНИТЬ ==========
 @dp.message(Command("бан"))
 async def ban_user(message: types.Message):
-    if not is_admin(message.from_user.id):
+    if not await is_chat_admin(message.from_user.id, message.chat.id):
         await message.reply("❌ У тебя нет прав!")
         return
     
@@ -124,7 +134,7 @@ async def ban_user(message: types.Message):
 # ========== 4. ОЧИСТИТЬ ЧАТ ==========
 @dp.message(Command("очистить"))
 async def clear_chat(message: types.Message):
-    if not is_admin(message.from_user.id):
+    if not await is_chat_admin(message.from_user.id, message.chat.id):
         await message.reply("❌ У тебя нет прав!")
         return
     
@@ -155,7 +165,7 @@ async def clear_chat(message: types.Message):
 # ========== 5. ПРЕДУПРЕЖДЕНИЕ ==========
 @dp.message(Command("варн"))
 async def warn_user(message: types.Message):
-    if not is_admin(message.from_user.id):
+    if not await is_chat_admin(message.from_user.id, message.chat.id):
         await message.reply("❌ У тебя нет прав!")
         return
     
@@ -248,7 +258,7 @@ async def snake_reply(message: types.Message):
 async def main():
     print("=" * 50)
     print("🐍 ЗМЕЙ ЗАПУЩЕН!")
-    print(f"👑 Админ ID: {ADMIN_ID}")
+    print("👑 Режим анонимности поддерживается!")
     print("Команды: /включить, /отключить, /убрать, /бан, /очистить, /варн, /mods, /stats, /creator")
     print("=" * 50)
     await dp.start_polling(bot)
