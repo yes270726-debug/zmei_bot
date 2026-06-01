@@ -940,17 +940,23 @@ async def ignore_all_other_messages(message: types.Message):
     print(f"👤 {user['name']} (@{username}): {message.text[:50]} (проигнорировано)")
     print("-" * 50)
 
+# ========== ВЕБ-СЕРВЕР ДЛЯ RENDER ==========
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Zmei bot is alive! 🐍")
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
+
 # ========== ЗАПУСК ==========
 async def main():
-    total = sum(len(v) for v in ALL_ANSWERS.values())
-    mods_total = sum(len(MODS_ANSWERS[mod]) for mod in MODS_ANSWERS)
-    
     print("=" * 70)
     print("🐍 ЗМЕЙ ЗАПУЩЕН! ОТВЕЧАЕТ ТОЛЬКО НА !змей")
     print("=" * 70)
-    print(f"📊 Всего ответов: {total}+")
-    print(f"🎮 Модов в базе: {len(MODS)}")
-    print(f"💬 Ответов про моды: {mods_total}+")
     print(f"🔥 Любит: себя, создателя, все моды")
     print(f"💢 Ненавидит: Катю")
     print(f"💬 Чат Vitalem - лучший!")
@@ -968,7 +974,6 @@ async def main():
     print("  !змей отключить - выключить бота")
     print("  !змей включить - включить бота")
     print("• Все остальные сообщения игнорируются")
-    print("• Агрессия полностью убрана")
     print("• Пример: !змей привет")
     print("• Пример: !змей расскажи про Зайчика")
     print("=" * 70)
@@ -980,4 +985,9 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
+    # Запускаем веб-сервер в отдельном потоке (чтобы Render не убивал процесс)
+    web_thread = threading.Thread(target=run_web_server, daemon=True)
+    web_thread.start()
+    
+    # Запускаем бота
     asyncio.run(main())
