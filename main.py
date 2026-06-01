@@ -2,7 +2,7 @@ import asyncio
 import os
 import random
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -12,21 +12,24 @@ TELEGRAM_TOKEN = "8313357893:AAGNbxBUBc2CzwRvp7BKyptWcomgKq1ii9k"
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# ========== ТВОЙ РЕАЛЬНЫЙ ID (НЕ АНОНИМНЫЙ) ==========
+# ========== ТВОЙ РЕАЛЬНЫЙ ID ==========
 REAL_ADMIN_ID = 8199816124
 
-# ========== ПРОВЕРКА ПРАВ (РАБОТАЕТ В АНОНИМКЕ) ==========
+# ========== ПРОВЕРКА ПРАВ ==========
 async def is_chat_admin(user_id: int, chat_id: int) -> bool:
-    # Сначала проверим по реальному ID (на случай, если анонимка выключена)
     if user_id == REAL_ADMIN_ID:
         return True
-    
-    # Если не совпало — проверим, есть ли у пользователя права админа в чате
     try:
         chat_member = await bot.get_chat_member(chat_id, user_id)
         return chat_member.status in ["creator", "administrator"]
     except:
         return False
+
+# ========== ХРАНИЛИЩЕ ЗАПРЕЩЁННЫХ СЛОВ ==========
+banned_words = []
+
+# ========== ХРАНИЛИЩЕ ЗАМУЧЕННЫХ ПОЛЬЗОВАТЕЛЕЙ ==========
+muted_users = {}
 
 # ========== ВЕБ-СЕРВЕР ДЛЯ RENDER ==========
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -131,7 +134,7 @@ async def ban_user(message: types.Message):
     except Exception as e:
         await message.reply(f"❌ Ошибка: {e}")
 
-# ========== 4. ОЧИСТИТЬ ЧАТ (УНИВЕРСАЛЬНАЯ ВЕРСИЯ) ==========
+# ========== 4. ОЧИСТИТЬ ЧАТ ==========
 @dp.message(Command("очистить"))
 async def clear_chat(message: types.Message):
     if not await is_chat_admin(message.from_user.id, message.chat.id):
@@ -149,40 +152,17 @@ async def clear_chat(message: types.Message):
             pass
     
     try:
-        # Удаляем команду /очистить
         await message.delete()
-        
         deleted = 0
-        # Получаем историю чата с помощью API
-        offset_id = message.message_id
-        
-        for _ in range(count * 2):  # Проходим с запасом
+        for i in range(1, count + 1):
             try:
-                # Получаем сообщения до текущего
-                messages = await bot.get_chat_history(
-                    chat_id=message.chat.id,
-                    limit=10,
-                    offset_id=offset_id
-                )
-                
-                if not messages:
-                    break
-                
-                for msg in messages:
-                    if deleted >= count:
-                        break
-                    try:
-                        await bot.delete_message(message.chat.id, msg.message_id)
-                        deleted += 1
-                        await asyncio.sleep(0.2)
-                    except:
-                        pass
-                    
-                    offset_id = msg.message_id
-                    
-            except Exception as e:
-                print(f"Ошибка при получении истории: {e}")
-                break
+                msg_id = message.message_id - i
+                if msg_id > 0:
+                    await bot.delete_message(message.chat.id, msg_id)
+                    deleted += 1
+                    await asyncio.sleep(0.1)
+            except:
+                pass
         
         report_msg = await message.answer(f"✅ Удалено {deleted} сообщений!")
         await asyncio.sleep(3)
@@ -190,9 +170,9 @@ async def clear_chat(message: types.Message):
             await report_msg.delete()
         except:
             pass
-            
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
+
 # ========== 5. ПРЕДУПРЕЖДЕНИЕ ==========
 @dp.message(Command("варн"))
 async def warn_user(message: types.Message):
@@ -207,15 +187,212 @@ async def warn_user(message: types.Message):
     user = message.reply_to_message.from_user
     await message.reply(f"⚠️ ПРЕДУПРЕЖДЕНИЕ {user.full_name}!\nСоблюдай правила чата!")
 
-# ========== 6. ПРИВЕТСТВИЕ НОВИЧКОВ ==========
-@dp.message()
-async def welcome_new_member(message: types.Message):
-    if message.new_chat_members:
-        for member in message.new_chat_members:
-            if member.id != bot.id:
-                await message.reply(f"🐍 Добро пожаловать, {member.full_name}!")
+# ========== 6. МУТ ==========
+@dp.message(Command("мут"))
+async def mute_user(message: types.Message):
+    if not await is_chat_admin(message.from_user.id, message.chat.id):
+        await message.reply("❌ У тебя нет прав!")
+        return
+    
+    args = message.text.split()
+    if len(args) < 3:
+        await message.reply("❗ Использование: /мут @username 10м (м - минуты, ч - часы, д - дни)")
+        return
+    
+    username = args[1].replace("@", "")
+    time_str = args[2]
+    
+    # Парсим время
+    if time_str.endswith("м"):
+        minutes = int(time_str[:-1])
+        seconds = minutes * 60
+        text_time = f"{minutes} минут"
+    elif time_str.endswith("ч"):
+        hours = int(time_str[:-1])
+        seconds = hours * 3600
+        text_time = f"{hours} часов"
+    elif time_str.endswith("д"):
+        days = int(time_str[:-1])
+        seconds = days * 86400
+        text_time = f"{days} дней"
+    else:
+        await message.reply("❗ Неверный формат. Примеры: 10м, 2ч, 1д")
+        return
+    
+    try:
+        chat_member = await bot.get_chat_member(message.chat.id, f"@{username}")
+        user_id = chat_member.user.id
+        name = chat_member.user.full_name
+        
+        muted_users[user_id] = datetime.now() + timedelta(seconds=seconds)
+        
+        # Ограничиваем права (не может писать)
+        await bot.restrict_chat_member(
+            message.chat.id, user_id,
+            permissions=types.ChatPermissions(can_send_messages=False)
+        )
+        
+        await message.reply(f"🔇 {name} замучен на {text_time}!")
+        
+        # Авто-размут через время
+        await asyncio.sleep(seconds)
+        if user_id in muted_users and muted_users[user_id] <= datetime.now():
+            await bot.restrict_chat_member(
+                message.chat.id, user_id,
+                permissions=types.ChatPermissions(can_send_messages=True)
+            )
+            await message.answer(f"🔊 {name} размучен автоматически.")
+            del muted_users[user_id]
+            
+    except Exception as e:
+        await message.reply(f"❌ Ошибка: {e}")
 
-# ========== 7. КОМАНДЫ /mods, /stats, /creator ==========
+# ========== 7. РАЗМУТ ==========
+@dp.message(Command("размут"))
+async def unmute_user(message: types.Message):
+    if not await is_chat_admin(message.from_user.id, message.chat.id):
+        await message.reply("❌ У тебя нет прав!")
+        return
+    
+    args = message.text.split()
+    if len(args) < 2:
+        await message.reply("❗ Использование: /размут @username")
+        return
+    
+    username = args[1].replace("@", "")
+    try:
+        chat_member = await bot.get_chat_member(message.chat.id, f"@{username}")
+        user_id = chat_member.user.id
+        name = chat_member.user.full_name
+        
+        if user_id in muted_users:
+            del muted_users[user_id]
+        
+        await bot.restrict_chat_member(
+            message.chat.id, user_id,
+            permissions=types.ChatPermissions(can_send_messages=True)
+        )
+        await message.reply(f"🔊 {name} размучен!")
+    except Exception as e:
+        await message.reply(f"❌ Ошибка: {e}")
+
+# ========== 8. ПИНГ ==========
+@dp.message(Command("пинг"))
+async def ping(message: types.Message):
+    start = datetime.now()
+    msg = await message.answer("🏓 Понг...")
+    end = datetime.now()
+    latency = (end - start).total_seconds() * 1000
+    await msg.edit_text(f"🏓 Понг! Задержка: {int(latency)}мс")
+
+# ========== 9. ИНФО О ПОЛЬЗОВАТЕЛЕ ==========
+@dp.message(Command("инфо"))
+async def user_info(message: types.Message):
+    if not await is_chat_admin(message.from_user.id, message.chat.id):
+        await message.reply("❌ У тебя нет прав!")
+        return
+    
+    if message.reply_to_message:
+        user = message.reply_to_message.from_user
+    else:
+        args = message.text.split()
+        if len(args) < 2:
+            await message.reply("❗ Использование: /инфо @username или ответь на сообщение")
+            return
+        username = args[1].replace("@", "")
+        try:
+            chat_member = await bot.get_chat_member(message.chat.id, f"@{username}")
+            user = chat_member.user
+        except:
+            await message.reply(f"❌ Не могу найти @{username}")
+            return
+    
+    info = (
+        f"📝 ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ:\n\n"
+        f"👤 Имя: {user.full_name}\n"
+        f"🆔 ID: {user.id}\n"
+        f"📛 Username: @{user.username if user.username else 'нет'}\n"
+    )
+    await message.reply(info)
+
+# ========== 10. ЗАПРЕТИТЬ СЛОВО ==========
+@dp.message(Command("запрет"))
+async def ban_word(message: types.Message):
+    if not await is_chat_admin(message.from_user.id, message.chat.id):
+        await message.reply("❌ У тебя нет прав!")
+        return
+    
+    args = message.text.split()
+    if len(args) < 2:
+        await message.reply("❗ Использование: /запрет слово")
+        return
+    
+    word = args[1].lower()
+    if word not in banned_words:
+        banned_words.append(word)
+        await message.reply(f"✅ Слово '{word}' добавлено в чёрный список!")
+    else:
+        await message.reply(f"⚠️ Слово '{word}' уже в чёрном списке!")
+
+# ========== 11. РАЗРЕШИТЬ СЛОВО ==========
+@dp.message(Command("разрешить"))
+async def unban_word(message: types.Message):
+    if not await is_chat_admin(message.from_user.id, message.chat.id):
+        await message.reply("❌ У тебя нет прав!")
+        return
+    
+    args = message.text.split()
+    if len(args) < 2:
+        await message.reply("❗ Использование: /разрешить слово")
+        return
+    
+    word = args[1].lower()
+    if word in banned_words:
+        banned_words.remove(word)
+        await message.reply(f"✅ Слово '{word}' удалено из чёрного списка!")
+    else:
+        await message.reply(f"⚠️ Слово '{word}' не найдено в чёрном списке!")
+
+# ========== 12. ПРАВИЛА ==========
+@dp.message(Command("правила"))
+async def rules(message: types.Message):
+    await message.reply(
+        "📜 ПРАВИЛА ЧАТА:\n\n"
+        "1️⃣ Без оскорблений\n"
+        "2️⃣ Без спама\n"
+        "3️⃣ Без рекламы\n"
+        "4️⃣ Уважайте друг друга\n"
+        "5️⃣ Слушайтесь админов\n\n"
+        "Нарушители будут наказаны!"
+    )
+
+# ========== 13. HELP ==========
+@dp.message(Command("help"))
+async def help_cmd(message: types.Message):
+    await message.reply(
+        "🐍 КОМАНДЫ ЗМЕЯ:\n\n"
+        "👑 АДМИНИСТРИРОВАНИЕ:\n"
+        "/включить - Включить бота\n"
+        "/отключить - Выключить бота\n"
+        "/убрать @ник - Кикнуть\n"
+        "/бан @ник - Забанить\n"
+        "/очистить N - Очистить N сообщений\n"
+        "/варн - Предупреждение\n"
+        "/мут @ник время - Замутить (10м, 2ч, 1д)\n"
+        "/размут @ник - Снять мут\n"
+        "/запрет слово - Запретить слово\n"
+        "/разрешить слово - Разрешить слово\n"
+        "/инфо @ник - Инфо о пользователе\n\n"
+        "📊 ИНФОРМАЦИЯ:\n"
+        "/mods - Все моды\n"
+        "/stats - Статистика\n"
+        "/creator - О создателе\n"
+        "/ping - Проверить бота\n\n"
+        "💬 ПРОСТО НАПИШИ:\n"
+        "Привет, как дела, пока, спасибо, люблю тебя, название мода"
+    )
+
+# ========== 14. МОДЫ, СТАТС, КРИЭЙТОР ==========
 MODS = [
     "Зайчик", "Другая История", "Зайчик История Алисы",
     "Зайчик Зов Лесного Кошмара", "Зайчик Зазеркалье", "Зайчик Оковы Тьмы",
@@ -235,7 +412,8 @@ async def stats_cmd(message: types.Message):
     await message.answer(
         f"📊 СТАТИСТИКА:\n"
         f"🐍 Модов: {len(MODS)}\n"
-        f"👑 Админ: Олег\n"
+        f"🔞 Запрещённых слов: {len(banned_words)}\n"
+        f"🔇 Замученных: {len(muted_users)}\n"
         f"💬 Статус: 🟢 РАБОТАЮ"
     )
 
@@ -243,7 +421,42 @@ async def stats_cmd(message: types.Message):
 async def creator_cmd(message: types.Message):
     await message.answer("👑 СОЗДАТЕЛЬ - ЛЕГЕНДА! 🔥")
 
-# ========== 8. ОБЫЧНЫЕ ОТВЕТЫ ==========
+# ========== 15. ПРИВЕТСТВИЕ НОВИЧКОВ ==========
+@dp.message()
+async def welcome_new_member(message: types.Message):
+    if message.new_chat_members:
+        for member in message.new_chat_members:
+            if member.id != bot.id:
+                await message.reply(f"🐍 Добро пожаловать, {member.full_name}!")
+
+# ========== 16. ПРОВЕРКА НА ЗАПРЕЩЁННЫЕ СЛОВА ==========
+@dp.message()
+async def check_banned_words(message: types.Message):
+    if not bot_enabled:
+        return
+    
+    text = message.text.lower() if message.text else ""
+    for word in banned_words:
+        if word in text:
+            await message.delete()
+            await message.answer(f"⚠️ {message.from_user.full_name}, слово '{word}' запрещено!")
+            return
+
+# ========== 17. ПРОВЕРКА НА МУТ ==========
+@dp.message()
+async def check_muted(message: types.Message):
+    if not bot_enabled:
+        return
+    
+    user_id = message.from_user.id
+    if user_id in muted_users:
+        if muted_users[user_id] > datetime.now():
+            await message.delete()
+            await message.answer(f"🔇 {message.from_user.full_name}, вы замучены и не можете писать!")
+        else:
+            del muted_users[user_id]
+
+# ========== 18. ОБЫЧНЫЕ ОТВЕТЫ ==========
 BASIC_ANSWERS = {
     "привет": ["Привет, зайка! 🐍", "Здарова, пушистый! 👋", "Приветик! 😊"],
     "как дела": ["Норм, а у тебя?", "Отлично, рассказывай!", "Хорошо, сам как?"],
@@ -287,11 +500,11 @@ async def snake_reply(message: types.Message):
 
 # ========== ЗАПУСК ==========
 async def main():
-    print("=" * 50)
-    print("🐍 ЗМЕЙ ЗАПУЩЕН!")
-    print("👑 Режим анонимности поддерживается!")
-    print("Команды: /включить, /отключить, /убрать, /бан, /очистить, /варн, /mods, /stats, /creator")
-    print("=" * 50)
+    print("=" * 60)
+    print("🐍 ЗМЕЙ ЗАПУЩЕН! ВСЕ КОМАНДЫ АКТИВНЫ!")
+    print("👑 Админ: Олег")
+    print("📋 Команды: /help - список всех команд")
+    print("=" * 60)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
