@@ -991,3 +991,30 @@ if __name__ == "__main__":
     
     # Запускаем бота
     asyncio.run(main())
+
+# ========== ВЕБ-СЕРВЕР ДЛЯ RENDER ==========
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Zmei bot is alive!")
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
+
+# ========== ЗАПУСК ==========
+async def main():
+    # ... твоя функция main() которая уже есть ...
+    pass
+
+if __name__ == "__main__":
+    # Запускаем веб-сервер в фоне (нужен для Render)
+    web_thread = threading.Thread(target=run_web_server, daemon=True)
+    web_thread.start()
+    # Запускаем бота
+    asyncio.run(main())
