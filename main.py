@@ -10,36 +10,44 @@ TELEGRAM_TOKEN = "8313357893:AAGNbxBUBc2CzwRvp7BKyptWcomgKq1ii9k"
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# ========== ВЕБ-СЕРВЕР ==========
+# ========== ВЕБ-СЕРВЕР (ПОЛНАЯ ВЕРСИЯ) ==========
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"Zmei bot is alive!")
+    
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
     server.serve_forever()
 
-# ========== КОМАНДЫ ==========
+# ========== КОМАНДЫ БОТА ==========
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    await message.answer("Привет! Я Змей. Пиши: !змей привет")
+    await message.answer("🐍 Привет! Я Змей. Пиши: !змей привет")
 
 @dp.message(lambda m: m.text and m.text.startswith("!змей"))
 async def reply(message: types.Message):
     text = message.text[6:].strip().lower()
     if "привет" in text:
-        await message.answer("Привет, зайка!")
+        await message.answer("Привет, зайка! 🐍")
     elif "как дела" in text:
         await message.answer("Норм, а у тебя?")
+    elif "пока" in text:
+        await message.answer("Пока, зайка! 👋")
     else:
-        await message.answer("Расскажи подробнее!")
+        await message.answer("Расскажи подробнее, зайка!")
 
 # ========== ЗАПУСК ==========
 async def main():
-    print("Бот запущен!")
+    print("=" * 40)
+    print("🐍 ЗМЕЙ ЗАПУЩЕН!")
+    print("=" * 40)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
