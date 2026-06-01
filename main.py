@@ -131,7 +131,7 @@ async def ban_user(message: types.Message):
     except Exception as e:
         await message.reply(f"❌ Ошибка: {e}")
 
-# ========== 4. ОЧИСТИТЬ ЧАТ (ПРОСТАЯ ВЕРСИЯ) ==========
+# ========== 4. ОЧИСТИТЬ ЧАТ (УНИВЕРСАЛЬНАЯ ВЕРСИЯ) ==========
 @dp.message(Command("очистить"))
 async def clear_chat(message: types.Message):
     if not await is_chat_admin(message.from_user.id, message.chat.id):
@@ -149,23 +149,45 @@ async def clear_chat(message: types.Message):
             pass
     
     try:
-        # Удаляем команду
+        # Удаляем команду /очистить
         await message.delete()
         
         deleted = 0
-        # Перебираем ID сообщений для удаления
-        for i in range(1, count + 1):
-            try:
-                await bot.delete_message(message.chat.id, message.message_id - i)
-                deleted += 1
-                await asyncio.sleep(0.1)
-            except:
-                pass
+        # Получаем историю чата с помощью API
+        offset_id = message.message_id
         
-        msg = await message.answer(f"✅ Удалено {deleted} сообщений!")
-        await asyncio.sleep(2)
+        for _ in range(count * 2):  # Проходим с запасом
+            try:
+                # Получаем сообщения до текущего
+                messages = await bot.get_chat_history(
+                    chat_id=message.chat.id,
+                    limit=10,
+                    offset_id=offset_id
+                )
+                
+                if not messages:
+                    break
+                
+                for msg in messages:
+                    if deleted >= count:
+                        break
+                    try:
+                        await bot.delete_message(message.chat.id, msg.message_id)
+                        deleted += 1
+                        await asyncio.sleep(0.2)
+                    except:
+                        pass
+                    
+                    offset_id = msg.message_id
+                    
+            except Exception as e:
+                print(f"Ошибка при получении истории: {e}")
+                break
+        
+        report_msg = await message.answer(f"✅ Удалено {deleted} сообщений!")
+        await asyncio.sleep(3)
         try:
-            await msg.delete()
+            await report_msg.delete()
         except:
             pass
             
