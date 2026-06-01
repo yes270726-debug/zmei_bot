@@ -131,7 +131,7 @@ async def ban_user(message: types.Message):
     except Exception as e:
         await message.reply(f"❌ Ошибка: {e}")
 
-# ========== 4. ОЧИСТИТЬ ЧАТ ==========
+# ========== 4. ОЧИСТИТЬ ЧАТ (ПРОСТАЯ ВЕРСИЯ) ==========
 @dp.message(Command("очистить"))
 async def clear_chat(message: types.Message):
     if not await is_chat_admin(message.from_user.id, message.chat.id):
@@ -149,19 +149,28 @@ async def clear_chat(message: types.Message):
             pass
     
     try:
+        # Удаляем команду
         await message.delete()
+        
         deleted = 0
-        async for msg in bot.get_chat_history(message.chat.id, limit=count):
+        # Перебираем ID сообщений для удаления
+        for i in range(1, count + 1):
             try:
-                await bot.delete_message(message.chat.id, msg.message_id)
+                await bot.delete_message(message.chat.id, message.message_id - i)
                 deleted += 1
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.1)
             except:
                 pass
-        await message.answer(f"✅ Удалено {deleted} сообщений!")
+        
+        msg = await message.answer(f"✅ Удалено {deleted} сообщений!")
+        await asyncio.sleep(2)
+        try:
+            await msg.delete()
+        except:
+            pass
+            
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
-
 # ========== 5. ПРЕДУПРЕЖДЕНИЕ ==========
 @dp.message(Command("варн"))
 async def warn_user(message: types.Message):
