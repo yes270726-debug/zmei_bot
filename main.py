@@ -147,7 +147,7 @@ ANSWERS = {
         "Тут сижу, отвечаю хорошим людям!"
     ],
     "кто ты": [
-        "Я Змей, твой виртуальный друг! 🐍",
+        "Я Змей, твой виртуальный дружище! 🐍",
         "Змей, приятно познакомиться!",
         "Я бот, но с душой! Люблю зайчиков!"
     ],
@@ -265,7 +265,7 @@ ANSWERS = {
     ]
 }
 
-# ========== ДОПОЛНИТЕЛЬНЫЕ ОТВЕТЫ ДЛЯ РАЗНООБРАЗИЯ ==========
+# ========== ДОПОЛНИТЕЛЬНЫЕ ОТВЕТЫ ==========
 EXTRA_ANSWERS = [
     "Интересно ты говоришь, зайка! Продолжай!",
     "Я тебя слушаю, любимый! 👂",
@@ -279,17 +279,17 @@ EXTRA_ANSWERS = [
     "Я весь во внимании, продолжай!"
 ]
 
-# ========== ОБРАБОТЧИК КОМАНД ==========
+# ========== КОМАНДЫ ==========
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     await message.answer(
         "🐍 Привет! Я Змей, твой виртуальный друг!\n\n"
-        "📌 Я отвечаю на команду !змей\n"
-        "📌 Например:\n"
-        "   • !змей привет\n"
-        "   • !змей расскажи про Зайчика\n"
-        "   • !змей как дела\n"
-        "   • !змей пока\n\n"
+        "📌 Я отвечаю на ЛЮБЫЕ сообщения!\n"
+        "📌 Просто напиши что-нибудь:\n"
+        "   • Привет\n"
+        "   • Как дела\n"
+        "   • Расскажи про Зайчика\n"
+        "   • Пока\n\n"
         "🔥 Всего ответов: 5000+\n"
         "🎮 Модов: 18\n"
         "❤️ Я тебя люблю, зайка!"
@@ -298,7 +298,7 @@ async def start_cmd(message: types.Message):
 @dp.message(Command("mods"))
 async def mods_cmd(message: types.Message):
     mods_list = "\n".join([f"• {m}" for m in MODS])
-    await message.answer(f"📚 МОДЫ КОТОРЫЕ Я ЦЕНЮ:\n\n{mods_list}\n\nНапиши !змей и название мода, я расскажу!")
+    await message.answer(f"📚 МОДЫ КОТОРЫЕ Я ЦЕНЮ:\n\n{mods_list}\n\nНапиши название любого мода, я расскажу!")
 
 @dp.message(Command("stats"))
 async def stats_cmd(message: types.Message):
@@ -315,29 +315,38 @@ async def stats_cmd(message: types.Message):
 async def creator_cmd(message: types.Message):
     await message.answer("👑 СОЗДАТЕЛЬ - ЛЕГЕНДА! 🔥\n\nОн создал все эти крутые моды и меня самого!\nЯ его обожаю и уважаю больше всех! Спасибо ему! ❤️")
 
-# ========== ОСНОВНОЙ ОБРАБОТЧИК ==========
-@dp.message(lambda m: m.text and m.text.startswith("!змей"))
-async def snake_reply(message: types.Message):
-    global bot_enabled
+@dp.message(Command("отключить"))
+async def disable_cmd(message: types.Message):
     user_id = message.from_user.id
     username = message.from_user.username or ""
-    text = message.text[6:].strip().lower()
-    
-    if not text:
-        await message.answer("❌ Напиши что-нибудь после !змей! Например: !змей привет")
-        return
-    
-    # Админские команды
-    if text == "отключить" and (user_id in ADMIN_IDS or username in ADMIN_USERNAMES):
+    if user_id in ADMIN_IDS or username in ADMIN_USERNAMES:
+        global bot_enabled
         bot_enabled = False
-        await message.answer("🔴 Бот ОТКЛЮЧЁН! Админы могут включить командой !змей включить")
-        return
-    if text == "включить" and (user_id in ADMIN_IDS or username in ADMIN_USERNAMES):
+        await message.answer("🔴 Бот ОТКЛЮЧЁН! Админы могут включить командой /включить")
+    else:
+        await message.answer("❌ У тебя нет прав админа!")
+
+@dp.message(Command("включить"))
+async def enable_cmd(message: types.Message):
+    user_id = message.from_user.id
+    username = message.from_user.username or ""
+    if user_id in ADMIN_IDS or username in ADMIN_USERNAMES:
+        global bot_enabled
         bot_enabled = True
         await message.answer("🟢 Бот ВКЛЮЧЁН!")
-        return
+    else:
+        await message.answer("❌ У тебя нет прав админа!")
+
+# ========== ОСНОВНОЙ ОБРАБОТЧИК (ОТВЕЧАЕТ НА ВСЁ!) ==========
+@dp.message()
+async def snake_reply(message: types.Message):
+    global bot_enabled
     
     if not bot_enabled:
+        return
+    
+    text = message.text.strip().lower()
+    if not text:
         return
     
     # Проверка на моды
@@ -356,15 +365,10 @@ async def snake_reply(message: types.Message):
     # Если ничего не нашли - случайный общий ответ
     await message.answer(random.choice(EXTRA_ANSWERS))
 
-# ========== ИГНОР ОСТАЛЬНЫХ СООБЩЕНИЙ ==========
-@dp.message()
-async def ignore(message: types.Message):
-    pass  # Молчим на всё, кроме !змей
-
 # ========== ЗАПУСК ==========
 async def main():
     print("=" * 50)
-    print("🐍 ЗМЕЙ ЗАПУЩЕН! ОТВЕЧАЕТ НА !змей")
+    print("🐍 ЗМЕЙ ЗАПУЩЕН! ОТВЕЧАЕТ НА ЛЮБЫЕ СООБЩЕНИЯ!")
     print(f"📊 Ответов: 5000+ | Модов: {len(MODS)}")
     print("=" * 50)
     await dp.start_polling(bot)
