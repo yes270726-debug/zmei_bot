@@ -78,32 +78,62 @@ async def show_my_id(message: types.Message):
         f"🤖 БОТ ВКЛЮЧЁН? {bot_enabled}"
     )
 
+# ========== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ ПОЛЬЗОВАТЕЛЯ ==========
+async def get_user_by_username(chat_id: int, username: str):
+    """Получает пользователя по username"""
+    try:
+        # Убираем @ если есть
+        username = username.replace("@", "")
+        # Пробуем получить через get_chat_member
+        try:
+            member = await bot.get_chat_member(chat_id, f"@{username}")
+            return member.user
+        except:
+            # Если не работает, пробуем через get_chat
+            chat = await bot.get_chat(f"@{username}")
+            return chat
+    except Exception as e:
+        raise Exception(f"Не могу найти пользователя @{username}")
+
 # ========== КОМАНДЫ ШИППЕРИНГА (РАНДОМНЫЕ) ==========
 @dp.message(Command("шиперить"))
 async def ship_random(message: types.Message):
     """Рандомно шиперит двух пользователей из чата"""
     try:
-        # Получаем список участников чата
+        # Получаем список участников чата (исправленный способ)
         chat_members = []
-        async for member in bot.get_chat_administrators(message.chat.id):
-            chat_members.append(member.user)
-        
-        # Добавляем обычных пользователей (ограничимся 50 чтобы не грузить)
         offset = 0
-        while len(chat_members) < 50:
+        limit = 100
+        
+        while True:
             try:
-                members = await bot.get_chat_members(message.chat.id, offset=offset)
+                # Используем правильный метод get_chat_members
+                members = await bot.get_chat_members(
+                    chat_id=message.chat.id,
+                    offset=offset,
+                    limit=limit
+                )
                 if not members:
                     break
+                
                 for member in members:
-                    if not member.user.is_bot and member.user.id not in [u.id for u in chat_members]:
+                    if not member.user.is_bot:
                         chat_members.append(member.user)
+                
                 offset += len(members)
-            except:
+                if len(members) < limit:
+                    break
+                    
+            except Exception as e:
+                print(f"Ошибка получения участников: {e}")
                 break
         
-        # Фильтруем ботов
-        chat_members = [u for u in chat_members if not u.is_bot]
+        # Если мало участников, используем администраторов
+        if len(chat_members) < 3:
+            admins = await bot.get_chat_administrators(message.chat.id)
+            for admin in admins:
+                if not admin.user.is_bot and admin.user not in chat_members:
+                    chat_members.append(admin.user)
         
         if len(chat_members) < 2:
             await message.reply("😅 В чате太少 людей для шипперинга! Нужно минимум 2 человека.")
@@ -165,47 +195,44 @@ async def ship_specific(message: types.Message):
     user1_name = args[1].replace("@", "")
     user2_name = args[2].replace("@", "")
     
-    # Пытаемся найти пользователей
     try:
-        user1 = await bot.get_chat_member(message.chat.id, f"@{user1_name}")
-        user2 = await bot.get_chat_member(message.chat.id, f"@{user2_name}")
-        
-        user1_full = user1.user.full_name
-        user2_full = user2.user.full_name
+        # Получаем пользователей
+        user1 = await get_user_by_username(message.chat.id, user1_name)
+        user2 = await get_user_by_username(message.chat.id, user2_name)
         
         # Проверяем существующий шипп
         for ship in shipped_couples:
-            if (ship["user1_id"] == user1.user.id and ship["user2_id"] == user2.user.id) or \
-               (ship["user1_id"] == user2.user.id and ship["user2_id"] == user1.user.id):
-                await message.reply(f"😏 {user1_full} и {user2_full} уже шипп! 🔥")
+            if (ship["user1_id"] == user1.id and ship["user2_id"] == user2.id) or \
+               (ship["user1_id"] == user2.id and ship["user2_id"] == user1.id):
+                await message.reply(f"😏 {user1.full_name} и {user2.full_name} уже шипп! 🔥")
                 return
         
         ship_names = [
-            f"{user1_full}💕{user2_full}",
-            f"{user1_full}❤️{user2_full}",
-            f"{user1_full}🔥{user2_full}",
-            f"{user1_full}⭐{user2_full}",
-            f"{user1_full}🌈{user2_full}"
+            f"{user1.full_name}💕{user2.full_name}",
+            f"{user1.full_name}❤️{user2.full_name}",
+            f"{user1.full_name}🔥{user2.full_name}",
+            f"{user1.full_name}⭐{user2.full_name}",
+            f"{user1.full_name}🌈{user2.full_name}"
         ]
         ship_name = random.choice(ship_names)
         
         shipped_couples.append({
             "ship_name": ship_name,
-            "user1_id": user1.user.id,
-            "user1_name": user1_full,
-            "user2_id": user2.user.id,
-            "user2_name": user2_full,
+            "user1_id": user1.id,
+            "user1_name": user1.full_name,
+            "user2_id": user2.id,
+            "user2_name": user2.full_name,
             "date": datetime.now().strftime("%d.%m.%Y")
         })
         
         await message.reply(
             f"🐍 ЗМЕЙ ШИППНУЛ! 🐍\n\n"
-            f"💕 {user1_full} и {user2_full} - ТЕПЕРЬ ШИПП! 💕\n\n"
+            f"💕 {user1.full_name} и {user2.full_name} - ТЕПЕРЬ ШИПП! 💕\n\n"
             f"🔥 Название: {ship_name}"
         )
         
     except Exception as e:
-        await message.reply(f"❌ Не могу найти пользователей: {e}")
+        await message.reply(f"❌ Ошибка: {e}")
 
 @dp.message(Command("шиппы"))
 async def show_ships(message: types.Message):
@@ -234,37 +261,34 @@ async def marry_users(message: types.Message):
     user1_name = args[1].replace("@", "")
     user2_name = args[2].replace("@", "")
     
-    # Проверяем, не женаты ли уже
-    for couple in married_couples:
-        if (couple["user1"] == user1_name and couple["user2"] == user2_name) or \
-           (couple["user1"] == user2_name and couple["user2"] == user1_name):
-            await message.reply(f"😅 {user1_name} и {user2_name} уже женаты!")
-            return
-    
-    # Пытаемся найти пользователей
     try:
-        user1 = await bot.get_chat_member(message.chat.id, f"@{user1_name}")
-        user2 = await bot.get_chat_member(message.chat.id, f"@{user2_name}")
+        # Получаем пользователей
+        user1 = await get_user_by_username(message.chat.id, user1_name)
+        user2 = await get_user_by_username(message.chat.id, user2_name)
         
-        user1_full = user1.user.full_name
-        user2_full = user2.user.full_name
+        # Проверяем, не женаты ли уже
+        for couple in married_couples:
+            if (couple["user1_id"] == user1.id and couple["user2_id"] == user2.id) or \
+               (couple["user1_id"] == user2.id and couple["user2_id"] == user1.id):
+                await message.reply(f"😅 {user1.full_name} и {user2.full_name} уже женаты!")
+                return
         
         # Сохраняем брак
         married_couples.append({
             "user1": user1_name,
-            "user1_id": user1.user.id,
-            "user1_full": user1_full,
+            "user1_id": user1.id,
+            "user1_full": user1.full_name,
             "user2": user2_name,
-            "user2_id": user2.user.id,
-            "user2_full": user2_full,
+            "user2_id": user2.id,
+            "user2_full": user2.full_name,
             "date": datetime.now().strftime("%d.%m.%Y")
         })
         
         # Поздравления
         congrats = [
-            f"💍 СВАДЬБА! 💍\n\n{user1_full} и {user2_full} теперь МУЖ И ЖЕНА! 💑\n\nЗмей благословляет этот брак! 🐍✨\n\nЛюбви и счастья! ❤️",
-            f"💞 СВЕРШИЛОСЬ! 💞\n\n{user1_full} и {user2_full} теперь СЕМЬЯ! 🏠\n\nЗмей рад за вас! 🐍\n\nСовет да любовь! ❤️",
-            f"🎊 ЕЩЁ ОДНА СВАДЬБА! 🎊\n\n{user1_full} 💍 {user2_full}\n\nТеперь они вместе навсегда! 💕\n\nТак сказал Змей! 👑"
+            f"💍 СВАДЬБА! 💍\n\n{user1.full_name} и {user2.full_name} теперь МУЖ И ЖЕНА! 💑\n\nЗмей благословляет этот брак! 🐍✨\n\nЛюбви и счастья! ❤️",
+            f"💞 СВЕРШИЛОСЬ! 💞\n\n{user1.full_name} и {user2.full_name} теперь СЕМЬЯ! 🏠\n\nЗмей рад за вас! 🐍\n\nСовет да любовь! ❤️",
+            f"🎊 ЕЩЁ ОДНА СВАДЬБА! 🎊\n\n{user1.full_name} 💍 {user2.full_name}\n\nТеперь они вместе навсегда! 💕\n\nТак сказал Змей! 👑"
         ]
         
         await message.reply(random.choice(congrats))
