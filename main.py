@@ -15,6 +15,11 @@ dp = Dispatcher()
 # ========== ТВОЙ РЕАЛЬНЫЙ ID ==========
 REAL_ADMIN_ID = 8199816124
 
+# ========== ЦЕЛЕВОЙ ПОЛЬЗОВАТЕЛЬ ДЛЯ КОНТРОЛЯ ==========
+TARGET_USER_ID = None  # Будет заполнено при первом обнаружении
+TARGET_USERNAME = "Zakuback"
+TARGET_FIRST_NAME = "тяви"
+
 # ========== ПРОВЕРКА ПРАВ ==========
 async def is_chat_admin(user_id: int, chat_id: int) -> bool:
     if user_id == REAL_ADMIN_ID:
@@ -24,6 +29,17 @@ async def is_chat_admin(user_id: int, chat_id: int) -> bool:
         return chat_member.status in ["creator", "administrator"]
     except:
         return False
+
+# ========== ПРОВЕРКА ЯВЛЯЕТСЯ ЛИ ПОЛЬЗОВАТЕЛЬ ЦЕЛЕВЫМ ==========
+def is_target_user(user_id: int, username: str = None, first_name: str = None) -> bool:
+    global TARGET_USER_ID
+    if TARGET_USER_ID and user_id == TARGET_USER_ID:
+        return True
+    if username and username.lower() == TARGET_USERNAME.lower():
+        return True
+    if first_name and first_name.lower() == TARGET_FIRST_NAME.lower():
+        return True
+    return False
 
 # ========== ХРАНИЛИЩЕ ЗАПРЕЩЁННЫХ СЛОВ ==========
 banned_words = []
@@ -473,10 +489,61 @@ EXTRA_ANSWERS = [
     "Змей внимает тебе!"
 ]
 
+# ========== 19. КОНТРОЛЬ НАД ВИТЕЙ (ЗАМЕНЯЕМ СООБЩЕНИЯ) ==========
+TARGET_RESPONSES = [
+    "Витя, не пиши ерунду! 😠",
+    "тяви, прекрати! 👀",
+    "@Zakuback, ты меня бесишь! 🤬",
+    "Витя, иди учи уроки! 📚",
+    "тяви, молчи уже! 🤐",
+    "@Zakuback, заткнись! 🔇",
+    "Витя, ты вообще адекватный? 🤔",
+    "тяви, прекрати позориться! 😤",
+    "@Zakuback, будь человеком! 🧑",
+    "Витя, тебе заняться нечем? 💀",
+]
+
+TARGET_SPECIAL_RESPONSES = {
+    "привет": ["Витя, иди нафиг! 👋", "тяви, не приветствуй меня!"],
+    "как дела": ["Витя, а мне похер!", "тяви, не твое дело!"],
+    "пока": ["Вали, Витя! 🚪", "иди нафиг, @Zakuback!"],
+}
+
+@dp.message()
+async def control_target_user(message: types.Message):
+    global bot_enabled, TARGET_USER_ID
+    
+    if not bot_enabled:
+        return
+    
+    # Проверяем, является ли пользователь целевым
+    user = message.from_user
+    
+    # Сохраняем ID цели при первом обнаружении
+    if is_target_user(user.id, user.username, user.first_name):
+        TARGET_USER_ID = user.id
+        
+        # Отвечаем на сообщение Вити
+        text = message.text.lower().strip() if message.text else ""
+        
+        # Специальные ответы на ключевые слова
+        for key in TARGET_SPECIAL_RESPONSES:
+            if key in text:
+                await message.reply(random.choice(TARGET_SPECIAL_RESPONSES[key]))
+                return
+        
+        # Случайные ответы
+        await message.reply(random.choice(TARGET_RESPONSES))
+
+# ========== 20. ОБЫЧНЫЕ ОТВЕТЫ (перемещены в конец, чтобы не конфликтовать с контролем) ==========
 @dp.message()
 async def snake_reply(message: types.Message):
     global bot_enabled
     if not bot_enabled:
+        return
+    
+    # Пропускаем, если это целевой пользователь (он уже обработан)
+    if is_target_user(message.from_user.id, message.from_user.username, message.from_user.first_name):
         return
     
     text = message.text.lower().strip() if message.text else ""
@@ -503,6 +570,7 @@ async def main():
     print("=" * 60)
     print("🐍 ЗМЕЙ ЗАПУЩЕН! ВСЕ КОМАНДЫ АКТИВНЫ!")
     print("👑 Админ: Олег")
+    print("🎯 Целевой пользователь: Витя (@Zakuback, тяви)")
     print("📋 Команды: /help - список всех команд")
     print("=" * 60)
     await dp.start_polling(bot)
