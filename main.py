@@ -13,17 +13,20 @@ bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
 # ========== ТВОЙ РЕАЛЬНЫЙ ID ==========
-REAL_ADMIN_ID = 8199816124
+REAL_ADMIN_ID = 8199816124  # УБЕДИСЬ, ЧТО ЭТО ТОЧНЫЙ ID!
 
 # ========== ЦЕЛЕВОЙ ПОЛЬЗОВАТЕЛЬ ДЛЯ КОНТРОЛЯ ==========
 TARGET_USER_ID = None  # Будет заполнено при первом обнаружении
 TARGET_USERNAME = "Zakuback"
 TARGET_FIRST_NAME = "тяви"
 
-# ========== ПРОВЕРКА ПРАВ ==========
+# ========== ПРОВЕРКА ПРАВ (ИСПРАВЛЕННАЯ) ==========
 async def is_chat_admin(user_id: int, chat_id: int) -> bool:
+    # СНАЧАЛА ПРОВЕРЯЕМ ЖЁСТКИЙ ID - ЭТО ВСЕГДА АДМИН!
     if user_id == REAL_ADMIN_ID:
         return True
+    
+    # ПОТОМ ПРОВЕРЯЕМ ОСТАЛЬНЫХ
     try:
         chat_member = await bot.get_chat_member(chat_id, user_id)
         return chat_member.status in ["creator", "administrator"]
@@ -65,6 +68,20 @@ def run_web_server():
 # ========== СТАТУС БОТА ==========
 bot_enabled = True
 
+# ========== ДИАГНОСТИЧЕСКАЯ КОМАНДА ==========
+@dp.message(Command("myid"))
+async def show_my_id(message: types.Message):
+    user_id = message.from_user.id
+    is_admin = await is_chat_admin(user_id, message.chat.id)
+    
+    await message.reply(
+        f"👤 ТВОЙ ID: {user_id}\n"
+        f"🔑 АДМИН? {is_admin}\n"
+        f"📋 REAL_ADMIN_ID: {REAL_ADMIN_ID}\n"
+        f"✅ СОВПАДАЕТ? {user_id == REAL_ADMIN_ID}\n"
+        f"🤖 БОТ ВКЛЮЧЁН? {bot_enabled}"
+    )
+
 # ========== 1. ВКЛЮЧИТЬ/ОТКЛЮЧИТЬ БОТА ==========
 @dp.message(Command("включить"))
 async def enable_bot(message: types.Message):
@@ -84,6 +101,14 @@ async def disable_bot(message: types.Message):
     bot_enabled = False
     await message.reply("🔴 Бот ОТКЛЮЧЁН!")
 
+@dp.message(Command("статус"))
+async def status_bot(message: types.Message):
+    if not await is_chat_admin(message.from_user.id, message.chat.id):
+        await message.reply("❌ У тебя нет прав!")
+        return
+    status = "🟢 ВКЛЮЧЁН" if bot_enabled else "🔴 ОТКЛЮЧЁН"
+    await message.reply(f"📊 СТАТУС БОТА: {status}")
+
 # ========== 2. УДАЛИТЬ УЧАСТНИКА ==========
 @dp.message(Command("убрать"))
 async def kick_user(message: types.Message):
@@ -96,6 +121,8 @@ async def kick_user(message: types.Message):
         name = message.reply_to_message.from_user.full_name
         try:
             await bot.ban_chat_member(message.chat.id, user_id)
+            await asyncio.sleep(1)
+            await bot.unban_chat_member(message.chat.id, user_id)
             await message.reply(f"✅ {name} удалён из чата!")
             return
         except Exception as e:
@@ -113,6 +140,8 @@ async def kick_user(message: types.Message):
         user_id = chat_member.user.id
         name = chat_member.user.full_name
         await bot.ban_chat_member(message.chat.id, user_id)
+        await asyncio.sleep(1)
+        await bot.unban_chat_member(message.chat.id, user_id)
         await message.reply(f"✅ {name} удалён из чата!")
     except Exception as e:
         await message.reply(f"❌ Ошибка: {e}")
@@ -251,14 +280,20 @@ async def mute_user(message: types.Message):
         await message.reply(f"🔇 {name} замучен на {text_time}!")
         
         # Авто-размут через время
-        await asyncio.sleep(seconds)
-        if user_id in muted_users and muted_users[user_id] <= datetime.now():
-            await bot.restrict_chat_member(
-                message.chat.id, user_id,
-                permissions=types.ChatPermissions(can_send_messages=True)
-            )
-            await message.answer(f"🔊 {name} размучен автоматически.")
-            del muted_users[user_id]
+        async def auto_unmute():
+            await asyncio.sleep(seconds)
+            if user_id in muted_users and muted_users[user_id] <= datetime.now():
+                try:
+                    await bot.restrict_chat_member(
+                        message.chat.id, user_id,
+                        permissions=types.ChatPermissions(can_send_messages=True)
+                    )
+                    await message.answer(f"🔊 {name} размучен автоматически.")
+                    del muted_users[user_id]
+                except:
+                    pass
+        
+        asyncio.create_task(auto_unmute())
             
     except Exception as e:
         await message.reply(f"❌ Ошибка: {e}")
@@ -390,6 +425,8 @@ async def help_cmd(message: types.Message):
         "👑 АДМИНИСТРИРОВАНИЕ:\n"
         "/включить - Включить бота\n"
         "/отключить - Выключить бота\n"
+        "/статус - Статус бота\n"
+        "/myid - Показать твой ID\n"
         "/убрать @ник - Кикнуть\n"
         "/бан @ник - Забанить\n"
         "/очистить N - Очистить N сообщений\n"
@@ -430,7 +467,7 @@ async def stats_cmd(message: types.Message):
         f"🐍 Модов: {len(MODS)}\n"
         f"🔞 Запрещённых слов: {len(banned_words)}\n"
         f"🔇 Замученных: {len(muted_users)}\n"
-        f"💬 Статус: 🟢 РАБОТАЮ"
+        f"💬 Статус: {'🟢 РАБОТАЮ' if bot_enabled else '🔴 ОТКЛЮЧЁН'}"
     )
 
 @dp.message(Command("creator"))
@@ -451,6 +488,10 @@ async def check_banned_words(message: types.Message):
     if not bot_enabled:
         return
     
+    # Пропускаем, если это целевой пользователь
+    if is_target_user(message.from_user.id, message.from_user.username, message.from_user.first_name):
+        return
+    
     text = message.text.lower() if message.text else ""
     for word in banned_words:
         if word in text:
@@ -464,6 +505,10 @@ async def check_muted(message: types.Message):
     if not bot_enabled:
         return
     
+    # Пропускаем, если это целевой пользователь
+    if is_target_user(message.from_user.id, message.from_user.username, message.from_user.first_name):
+        return
+    
     user_id = message.from_user.id
     if user_id in muted_users:
         if muted_users[user_id] > datetime.now():
@@ -472,24 +517,7 @@ async def check_muted(message: types.Message):
         else:
             del muted_users[user_id]
 
-# ========== 18. ОБЫЧНЫЕ ОТВЕТЫ ==========
-BASIC_ANSWERS = {
-    "привет": ["Привет, зайка! 🐍", "Здарова, пушистый! 👋", "Приветик! 😊"],
-    "как дела": ["Норм, а у тебя?", "Отлично, рассказывай!", "Хорошо, сам как?"],
-    "пока": ["Пока, зайка! 👋", "До встречи!", "Пока-пока!"],
-    "спасибо": ["Пожалуйста! 😊", "Не за что!", "Всегда рад помочь!"],
-    "люблю": ["И я тебя люблю! 💖", "Ой, спасибо!"],
-}
-
-EXTRA_ANSWERS = [
-    "Интересно! Продолжай!",
-    "Я слушаю тебя! 👂",
-    "Ну и что дальше?",
-    "Расскажи подробнее!",
-    "Змей внимает тебе!"
-]
-
-# ========== 19. КОНТРОЛЬ НАД ВИТЕЙ (ЗАМЕНЯЕМ СООБЩЕНИЯ) ==========
+# ========== 18. КОНТРОЛЬ НАД ВИТЕЙ ==========
 TARGET_RESPONSES = [
     "Витя, не пиши ерунду! 😠",
     "тяви, прекрати! 👀",
@@ -501,12 +529,17 @@ TARGET_RESPONSES = [
     "тяви, прекрати позориться! 😤",
     "@Zakuback, будь человеком! 🧑",
     "Витя, тебе заняться нечем? 💀",
+    "Витя, ты кто вообще? 👀",
+    "тяви, я тебя игнорю! 😒",
+    "@Zakuback, ты мне надоел! 🙄"
 ]
 
 TARGET_SPECIAL_RESPONSES = {
-    "привет": ["Витя, иди нафиг! 👋", "тяви, не приветствуй меня!"],
-    "как дела": ["Витя, а мне похер!", "тяви, не твое дело!"],
-    "пока": ["Вали, Витя! 🚪", "иди нафиг, @Zakuback!"],
+    "привет": ["Витя, иди нафиг! 👋", "тяви, не приветствуй меня!", "@Zakuback, ты тут лишний!"],
+    "как дела": ["Витя, а мне похер!", "тяви, не твое дело!", "@Zakuback, отстань!"],
+    "пока": ["Вали, Витя! 🚪", "иди нафиг, @Zakuback!", "проваливай, тяви!"],
+    "спасибо": ["Витя, не благодари!", "тяви, я не для тебя старался!"],
+    "люблю": ["Витя, взаимно! (нет) 🙄", "тяви, ты мне противен!", "@Zakuback, фу!"]
 }
 
 @dp.message()
@@ -535,7 +568,26 @@ async def control_target_user(message: types.Message):
         # Случайные ответы
         await message.reply(random.choice(TARGET_RESPONSES))
 
-# ========== 20. ОБЫЧНЫЕ ОТВЕТЫ (перемещены в конец, чтобы не конфликтовать с контролем) ==========
+# ========== 19. ОБЫЧНЫЕ ОТВЕТЫ ==========
+BASIC_ANSWERS = {
+    "привет": ["Привет, зайка! 🐍", "Здарова, пушистый! 👋", "Приветик! 😊"],
+    "как дела": ["Норм, а у тебя?", "Отлично, рассказывай!", "Хорошо, сам как?"],
+    "пока": ["Пока, зайка! 👋", "До встречи!", "Пока-пока!"],
+    "спасибо": ["Пожалуйста! 😊", "Не за что!", "Всегда рад помочь!"],
+    "люблю": ["И я тебя люблю! 💖", "Ой, спасибо!"],
+}
+
+EXTRA_ANSWERS = [
+    "Интересно! Продолжай!",
+    "Я слушаю тебя! 👂",
+    "Ну и что дальше?",
+    "Расскажи подробнее!",
+    "Змей внимает тебе!",
+    "Ого, круто! 🔥",
+    "А что дальше было? 🤔",
+    "Понятно-понятно! 😄"
+]
+
 @dp.message()
 async def snake_reply(message: types.Message):
     global bot_enabled
@@ -563,16 +615,22 @@ async def snake_reply(message: types.Message):
             return
     
     # Если ничего не подошло
-    await message.answer(random.choice(EXTRA_ANSWERS))
+    if random.random() < 0.3:  # 30% шанс ответить
+        await message.answer(random.choice(EXTRA_ANSWERS))
 
 # ========== ЗАПУСК ==========
 async def main():
     print("=" * 60)
     print("🐍 ЗМЕЙ ЗАПУЩЕН! ВСЕ КОМАНДЫ АКТИВНЫ!")
-    print("👑 Админ: Олег")
+    print(f"👑 Админ ID: {REAL_ADMIN_ID}")
     print("🎯 Целевой пользователь: Витя (@Zakuback, тяви)")
     print("📋 Команды: /help - список всех команд")
+    print("🔍 Диагностика: /myid - проверить твой ID")
     print("=" * 60)
+    
+    # Очищаем вебхук (на всякий случай)
+    await bot.delete_webhook(drop_pending_updates=True)
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
