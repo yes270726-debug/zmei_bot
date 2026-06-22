@@ -24,10 +24,8 @@ TARGET_FIRST_NAME = "тяви"
 banned_words = []
 muted_users = {}
 bot_enabled = True
-
-# ========== ХРАНИЛИЩЕ ДЛЯ ШИППЕРИНГА И СВАДЕБ ==========
-shipped_couples = []  # Список шиппов
-married_couples = []  # Список женатых пар
+shipped_couples = []
+married_couples = []
 
 # ========== ПРОВЕРКА ПРАВ ==========
 async def is_chat_admin(user_id: int, chat_id: int) -> bool:
@@ -65,49 +63,39 @@ def run_web_server():
     server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
     server.serve_forever()
 
+# ========== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ==========
+async def get_user_by_username(chat_id: int, username: str):
+    username = username.replace("@", "")
+    try:
+        member = await bot.get_chat_member(chat_id, f"@{username}")
+        return member.user
+    except:
+        chat = await bot.get_chat(f"@{username}")
+        return chat
+
 # ========== ДИАГНОСТИКА ==========
 @dp.message(Command("myid"))
 async def show_my_id(message: types.Message):
-    user_id = message.from_user.id
-    is_admin = await is_chat_admin(user_id, message.chat.id)
-    await message.reply(
-        f"👤 ТВОЙ ID: {user_id}\n"
-        f"🔑 АДМИН? {is_admin}\n"
-        f"📋 REAL_ADMIN_ID: {REAL_ADMIN_ID}\n"
-        f"✅ СОВПАДАЕТ? {user_id == REAL_ADMIN_ID}\n"
-        f"🤖 БОТ ВКЛЮЧЁН? {bot_enabled}"
-    )
+    await message.reply(f"👤 ТВОЙ ID: {message.from_user.id}")
 
-# ========== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ ПОЛЬЗОВАТЕЛЯ ==========
-async def get_user_by_username(chat_id: int, username: str):
-    """Получает пользователя по username"""
-    try:
-        # Убираем @ если есть
-        username = username.replace("@", "")
-        # Пробуем получить через get_chat_member
-        try:
-            member = await bot.get_chat_member(chat_id, f"@{username}")
-            return member.user
-        except:
-            # Если не работает, пробуем через get_chat
-            chat = await bot.get_chat(f"@{username}")
-            return chat
-    except Exception as e:
-        raise Exception(f"Не могу найти пользователя @{username}")
+@dp.message(Command("ping"))
+async def ping(message: types.Message):
+    start = datetime.now()
+    msg = await message.answer("🏓 Понг...")
+    end = datetime.now()
+    latency = (end - start).total_seconds() * 1000
+    await msg.edit_text(f"🏓 Понг! Задержка: {int(latency)}мс")
 
-# ========== КОМАНДЫ ШИППЕРИНГА (РАНДОМНЫЕ) ==========
+# ========== КОМАНДЫ ШИППЕРИНГА ==========
 @dp.message(Command("шиперить"))
 async def ship_random(message: types.Message):
-    """Рандомно шиперит двух пользователей из чата"""
     try:
-        # Получаем список участников чата (исправленный способ)
         chat_members = []
         offset = 0
         limit = 100
         
         while True:
             try:
-                # Используем правильный метод get_chat_members
                 members = await bot.get_chat_members(
                     chat_id=message.chat.id,
                     offset=offset,
@@ -115,20 +103,15 @@ async def ship_random(message: types.Message):
                 )
                 if not members:
                     break
-                
                 for member in members:
                     if not member.user.is_bot:
                         chat_members.append(member.user)
-                
                 offset += len(members)
                 if len(members) < limit:
                     break
-                    
-            except Exception as e:
-                print(f"Ошибка получения участников: {e}")
+            except:
                 break
         
-        # Если мало участников, используем администраторов
         if len(chat_members) < 3:
             admins = await bot.get_chat_administrators(message.chat.id)
             for admin in admins:
@@ -136,83 +119,15 @@ async def ship_random(message: types.Message):
                     chat_members.append(admin.user)
         
         if len(chat_members) < 2:
-            await message.reply("😅 В чате太少 людей для шипперинга! Нужно минимум 2 человека.")
+            await message.reply("😅 Нужно минимум 2 человека!")
             return
         
-        # Выбираем двух случайных разных пользователей
         user1, user2 = random.sample(chat_members, 2)
         
-        # Проверяем, не являются ли они уже шиппом
-        for ship in shipped_couples:
-            if (ship["user1_id"] == user1.id and ship["user2_id"] == user2.id) or \
-               (ship["user1_id"] == user2.id and ship["user2_id"] == user1.id):
-                await message.reply(f"😏 {user1.full_name} и {user2.full_name} уже шипп! 🔥")
-                return
-        
-        # Создаём шипп
         ship_names = [
             f"{user1.first_name}💕{user2.first_name}",
             f"{user1.first_name}❤️{user2.first_name}",
-            f"{user1.first_name}🔥{user2.first_name}",
-            f"{user1.first_name}⭐{user2.first_name}",
-            f"{user1.first_name}🌈{user2.first_name}",
-            f"{user1.first_name}💘{user2.first_name}",
-            f"{user1.first_name}✨{user2.first_name}"
-        ]
-        ship_name = random.choice(ship_names)
-        
-        # Сохраняем шипп
-        shipped_couples.append({
-            "ship_name": ship_name,
-            "user1_id": user1.id,
-            "user1_name": user1.full_name,
-            "user2_id": user2.id,
-            "user2_name": user2.full_name,
-            "date": datetime.now().strftime("%d.%m.%Y")
-        })
-        
-        # Красивое сообщение
-        messages = [
-            f"🐍 ЗМЕЙ ШИППЕРИТ РАНДОМНО! 🎲\n\n💕 {user1.full_name} и {user2.full_name} - ИДЕАЛЬНАЯ ПАРА! 💕\n\nОни созданы друг для друга! 🔥\n\n💞 Название шиппа: {ship_name}",
-            f"🎲 СЛУЧАЙНЫЙ ШИПП ОТ ЗМЕЯ! 🐍\n\n💞 {user1.full_name} + {user2.full_name} = ЛЮБОВЬ! 💞\n\nЭто судьба! 🌟\n\n🔥 Шипп: {ship_name}",
-            f"🐍 ЗМЕЙ ВИДИТ ИСКРЫ МЕЖДУ:\n\n💗 {user1.full_name} 💗 {user2.full_name} 💗\n\nМежду ними определённо что-то есть! 😏\n\n{ship_name} - навсегда!",
-            f"🎯 РАНДОМНЫЙ ШИПП! 🎯\n\n💖 {user1.full_name} 💖 {user2.full_name} 💖\n\nОни будут вместе! Так сказал Змей! 👑\n\n{ship_name} FOREVER!"
-        ]
-        
-        await message.reply(random.choice(messages))
-        
-    except Exception as e:
-        await message.reply(f"❌ Ошибка: {e}")
-
-@dp.message(Command("шипнуть"))
-async def ship_specific(message: types.Message):
-    """Шиперит конкретных пользователей"""
-    args = message.text.split()
-    if len(args) < 3:
-        await message.reply("❗ Использование: /шипнуть @ник1 @ник2\nПример: /шипнуть @Змей @Зайчик")
-        return
-    
-    user1_name = args[1].replace("@", "")
-    user2_name = args[2].replace("@", "")
-    
-    try:
-        # Получаем пользователей
-        user1 = await get_user_by_username(message.chat.id, user1_name)
-        user2 = await get_user_by_username(message.chat.id, user2_name)
-        
-        # Проверяем существующий шипп
-        for ship in shipped_couples:
-            if (ship["user1_id"] == user1.id and ship["user2_id"] == user2.id) or \
-               (ship["user1_id"] == user2.id and ship["user2_id"] == user1.id):
-                await message.reply(f"😏 {user1.full_name} и {user2.full_name} уже шипп! 🔥")
-                return
-        
-        ship_names = [
-            f"{user1.full_name}💕{user2.full_name}",
-            f"{user1.full_name}❤️{user2.full_name}",
-            f"{user1.full_name}🔥{user2.full_name}",
-            f"{user1.full_name}⭐{user2.full_name}",
-            f"{user1.full_name}🌈{user2.full_name}"
+            f"{user1.first_name}🔥{user2.first_name}"
         ]
         ship_name = random.choice(ship_names)
         
@@ -226,9 +141,45 @@ async def ship_specific(message: types.Message):
         })
         
         await message.reply(
-            f"🐍 ЗМЕЙ ШИППНУЛ! 🐍\n\n"
-            f"💕 {user1.full_name} и {user2.full_name} - ТЕПЕРЬ ШИПП! 💕\n\n"
-            f"🔥 Название: {ship_name}"
+            f"🐍 ЗМЕЙ ШИППЕРИТ! 🎲\n\n"
+            f"💕 {user1.full_name} и {user2.full_name}\n\n"
+            f"💞 Название: {ship_name}"
+        )
+        
+    except Exception as e:
+        await message.reply(f"❌ Ошибка: {e}")
+
+@dp.message(Command("шипнуть"))
+async def ship_specific(message: types.Message):
+    args = message.text.split()
+    if len(args) < 3:
+        await message.reply("❗ /шипнуть @ник1 @ник2")
+        return
+    
+    try:
+        user1 = await get_user_by_username(message.chat.id, args[1])
+        user2 = await get_user_by_username(message.chat.id, args[2])
+        
+        ship_names = [
+            f"{user1.full_name}💕{user2.full_name}",
+            f"{user1.full_name}❤️{user2.full_name}",
+            f"{user1.full_name}🔥{user2.full_name}"
+        ]
+        ship_name = random.choice(ship_names)
+        
+        shipped_couples.append({
+            "ship_name": ship_name,
+            "user1_id": user1.id,
+            "user1_name": user1.full_name,
+            "user2_id": user2.id,
+            "user2_name": user2.full_name,
+            "date": datetime.now().strftime("%d.%m.%Y")
+        })
+        
+        await message.reply(
+            f"🐍 ШИППНУТО! 💕\n\n"
+            f"{user1.full_name} + {user2.full_name}\n"
+            f"Название: {ship_name}"
         )
         
     except Exception as e:
@@ -236,59 +187,41 @@ async def ship_specific(message: types.Message):
 
 @dp.message(Command("шиппы"))
 async def show_ships(message: types.Message):
-    """Показывает все шиппы"""
     if not shipped_couples:
-        await message.reply("😔 Пока нет ни одного шиппа!\n\nСоздай командой:\n/шиперить - рандомный шипп\n/шипнуть @ник1 @ник2 - конкретный шипп")
+        await message.reply("😔 Нет шиппов!")
         return
     
-    ships_list = "🐍 ВСЕ ШИППЫ ЗМЕЯ:\n\n"
+    text = "🐍 ВСЕ ШИППЫ:\n\n"
     for i, ship in enumerate(shipped_couples, 1):
-        ships_list += f"{i}. {ship['ship_name']} 💕\n"
-        ships_list += f"   👤 {ship['user1_name']} + {ship['user2_name']}\n"
-        ships_list += f"   📅 {ship['date']}\n\n"
+        text += f"{i}. {ship['ship_name']}\n"
+        text += f"   {ship['user1_name']} + {ship['user2_name']}\n\n"
     
-    await message.reply(ships_list)
+    await message.reply(text)
 
-# ========== КОМАНДЫ СВАДЬБЫ (ПО ДВУМ НИКАМ) ==========
+# ========== КОМАНДЫ СВАДЬБЫ ==========
 @dp.message(Command("женится"))
 async def marry_users(message: types.Message):
-    """Женит двух пользователей по никам"""
     args = message.text.split()
     if len(args) < 3:
-        await message.reply("❗ Использование: /женится @ник1 @ник2\nПример: /женится @Змей @Зайчик")
+        await message.reply("❗ /женится @ник1 @ник2")
         return
     
-    user1_name = args[1].replace("@", "")
-    user2_name = args[2].replace("@", "")
-    
     try:
-        # Получаем пользователей
-        user1 = await get_user_by_username(message.chat.id, user1_name)
-        user2 = await get_user_by_username(message.chat.id, user2_name)
+        user1 = await get_user_by_username(message.chat.id, args[1])
+        user2 = await get_user_by_username(message.chat.id, args[2])
         
-        # Проверяем, не женаты ли уже
-        for couple in married_couples:
-            if (couple["user1_id"] == user1.id and couple["user2_id"] == user2.id) or \
-               (couple["user1_id"] == user2.id and couple["user2_id"] == user1.id):
-                await message.reply(f"😅 {user1.full_name} и {user2.full_name} уже женаты!")
-                return
-        
-        # Сохраняем брак
         married_couples.append({
-            "user1": user1_name,
             "user1_id": user1.id,
             "user1_full": user1.full_name,
-            "user2": user2_name,
             "user2_id": user2.id,
             "user2_full": user2.full_name,
             "date": datetime.now().strftime("%d.%m.%Y")
         })
         
-        # Поздравления
         congrats = [
-            f"💍 СВАДЬБА! 💍\n\n{user1.full_name} и {user2.full_name} теперь МУЖ И ЖЕНА! 💑\n\nЗмей благословляет этот брак! 🐍✨\n\nЛюбви и счастья! ❤️",
-            f"💞 СВЕРШИЛОСЬ! 💞\n\n{user1.full_name} и {user2.full_name} теперь СЕМЬЯ! 🏠\n\nЗмей рад за вас! 🐍\n\nСовет да любовь! ❤️",
-            f"🎊 ЕЩЁ ОДНА СВАДЬБА! 🎊\n\n{user1.full_name} 💍 {user2.full_name}\n\nТеперь они вместе навсегда! 💕\n\nТак сказал Змей! 👑"
+            f"💍 СВАДЬБА! 💍\n\n{user1.full_name} и {user2.full_name} теперь МУЖ И ЖЕНА! 💑",
+            f"💞 {user1.full_name} и {user2.full_name} теперь СЕМЬЯ! 🏠",
+            f"🎊 {user1.full_name} 💍 {user2.full_name}\n\nТеперь они вместе! 💕"
         ]
         
         await message.reply(random.choice(congrats))
@@ -298,55 +231,48 @@ async def marry_users(message: types.Message):
 
 @dp.message(Command("развод"))
 async def divorce_users(message: types.Message):
-    """Разводит двух пользователей"""
     args = message.text.split()
     if len(args) < 3:
-        await message.reply("❗ Использование: /развод @ник1 @ник2\nПример: /развод @Змей @Зайчик")
+        await message.reply("❗ /развод @ник1 @ник2")
         return
     
     user1_name = args[1].replace("@", "")
     user2_name = args[2].replace("@", "")
     
-    # Ищем брак
     found = False
     for couple in married_couples:
-        if (couple["user1"] == user1_name and couple["user2"] == user2_name) or \
-           (couple["user1"] == user2_name and couple["user2"] == user1_name):
+        if (couple["user1_full"].lower() == user1_name.lower() or 
+            couple["user1_full"].lower() == user2_name.lower()) and \
+           (couple["user2_full"].lower() == user1_name.lower() or 
+            couple["user2_full"].lower() == user2_name.lower()):
             married_couples.remove(couple)
             found = True
             break
     
     if not found:
-        await message.reply(f"😅 {user1_name} и {user2_name} не состоят в браке!")
+        await message.reply(f"😅 {user1_name} и {user2_name} не женаты!")
         return
     
-    divorce_msgs = [
-        f"💔 {user1_name} и {user2_name} развелись!\n\nЗмей грустит... но это их выбор! 🐍",
-        f"😔 Брак {user1_name} и {user2_name} расторгнут!\n\nЗмей надеется, что вы найдёте счастье! 🌟",
-        f"💀 {user1_name} и {user2_name} развелись!\n\nЗмей не судит! ❤️"
-    ]
-    
-    await message.reply(random.choice(divorce_msgs))
+    await message.reply(f"💔 {user1_name} и {user2_name} развелись!")
 
 @dp.message(Command("женатые"))
 async def show_married(message: types.Message):
-    """Показывает все браки"""
     if not married_couples:
-        await message.reply("😔 Пока нет ни одной свадьбы! Создайте первую командой:\n/женится @ник1 @ник2")
+        await message.reply("😔 Нет браков!")
         return
     
-    married_list = "💍 ВСЕ БРАКИ ЗМЕЯ:\n\n"
+    text = "💍 ВСЕ БРАКИ:\n\n"
     for i, couple in enumerate(married_couples, 1):
-        married_list += f"{i}. {couple['user1_full']} 💍 {couple['user2_full']}\n"
-        married_list += f"   📅 {couple['date']}\n\n"
+        text += f"{i}. {couple['user1_full']} 💍 {couple['user2_full']}\n"
+        text += f"   📅 {couple['date']}\n\n"
     
-    await message.reply(married_list)
+    await message.reply(text)
 
 # ========== КОМАНДЫ АДМИНИСТРИРОВАНИЯ ==========
 @dp.message(Command("включить"))
 async def enable_bot(message: types.Message):
     if not await is_chat_admin(message.from_user.id, message.chat.id):
-        await message.reply("❌ У тебя нет прав!")
+        await message.reply("❌ Нет прав!")
         return
     global bot_enabled
     bot_enabled = True
@@ -355,7 +281,7 @@ async def enable_bot(message: types.Message):
 @dp.message(Command("отключить"))
 async def disable_bot(message: types.Message):
     if not await is_chat_admin(message.from_user.id, message.chat.id):
-        await message.reply("❌ У тебя нет прав!")
+        await message.reply("❌ Нет прав!")
         return
     global bot_enabled
     bot_enabled = False
@@ -363,16 +289,13 @@ async def disable_bot(message: types.Message):
 
 @dp.message(Command("статус"))
 async def status_bot(message: types.Message):
-    if not await is_chat_admin(message.from_user.id, message.chat.id):
-        await message.reply("❌ У тебя нет прав!")
-        return
     status = "🟢 ВКЛЮЧЁН" if bot_enabled else "🔴 ОТКЛЮЧЁН"
-    await message.reply(f"📊 СТАТУС БОТА: {status}")
+    await message.reply(f"📊 СТАТУС: {status}")
 
 @dp.message(Command("убрать"))
 async def kick_user(message: types.Message):
     if not await is_chat_admin(message.from_user.id, message.chat.id):
-        await message.reply("❌ У тебя нет прав!")
+        await message.reply("❌ Нет прав!")
         return
     
     if message.reply_to_message:
@@ -382,33 +305,30 @@ async def kick_user(message: types.Message):
             await bot.ban_chat_member(message.chat.id, user_id)
             await asyncio.sleep(1)
             await bot.unban_chat_member(message.chat.id, user_id)
-            await message.reply(f"✅ {name} удалён из чата!")
+            await message.reply(f"✅ {name} удалён!")
             return
         except Exception as e:
-            await message.reply(f"❌ Ошибка: {e}")
+            await message.reply(f"❌ {e}")
             return
     
     args = message.text.split()
     if len(args) < 2:
-        await message.reply("❗ Использование: /убрать @username")
+        await message.reply("❗ /убрать @username")
         return
     
-    username = args[1].replace("@", "")
     try:
-        chat_member = await bot.get_chat_member(message.chat.id, f"@{username}")
-        user_id = chat_member.user.id
-        name = chat_member.user.full_name
-        await bot.ban_chat_member(message.chat.id, user_id)
+        member = await bot.get_chat_member(message.chat.id, args[1])
+        await bot.ban_chat_member(message.chat.id, member.user.id)
         await asyncio.sleep(1)
-        await bot.unban_chat_member(message.chat.id, user_id)
-        await message.reply(f"✅ {name} удалён из чата!")
+        await bot.unban_chat_member(message.chat.id, member.user.id)
+        await message.reply(f"✅ {member.user.full_name} удалён!")
     except Exception as e:
-        await message.reply(f"❌ Ошибка: {e}")
+        await message.reply(f"❌ {e}")
 
 @dp.message(Command("бан"))
 async def ban_user(message: types.Message):
     if not await is_chat_admin(message.from_user.id, message.chat.id):
-        await message.reply("❌ У тебя нет прав!")
+        await message.reply("❌ Нет прав!")
         return
     
     if message.reply_to_message:
@@ -419,28 +339,25 @@ async def ban_user(message: types.Message):
             await message.reply(f"✅ {name} забанен!")
             return
         except Exception as e:
-            await message.reply(f"❌ Ошибка: {e}")
+            await message.reply(f"❌ {e}")
             return
     
     args = message.text.split()
     if len(args) < 2:
-        await message.reply("❗ Использование: /бан @username")
+        await message.reply("❗ /бан @username")
         return
     
-    username = args[1].replace("@", "")
     try:
-        chat_member = await bot.get_chat_member(message.chat.id, f"@{username}")
-        user_id = chat_member.user.id
-        name = chat_member.user.full_name
-        await bot.ban_chat_member(message.chat.id, user_id)
-        await message.reply(f"✅ {name} забанен!")
+        member = await bot.get_chat_member(message.chat.id, args[1])
+        await bot.ban_chat_member(message.chat.id, member.user.id)
+        await message.reply(f"✅ {member.user.full_name} забанен!")
     except Exception as e:
-        await message.reply(f"❌ Ошибка: {e}")
+        await message.reply(f"❌ {e}")
 
 @dp.message(Command("очистить"))
 async def clear_chat(message: types.Message):
     if not await is_chat_admin(message.from_user.id, message.chat.id):
-        await message.reply("❌ У тебя нет прав!")
+        await message.reply("❌ Нет прав!")
         return
     
     args = message.text.split()
@@ -466,122 +383,94 @@ async def clear_chat(message: types.Message):
             except:
                 pass
         
-        report_msg = await message.answer(f"✅ Удалено {deleted} сообщений!")
-        await asyncio.sleep(3)
-        try:
-            await report_msg.delete()
-        except:
-            pass
+        msg = await message.answer(f"✅ Удалено {deleted} сообщений!")
+        await asyncio.sleep(2)
+        await msg.delete()
     except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}")
+        await message.answer(f"❌ {e}")
 
 @dp.message(Command("варн"))
 async def warn_user(message: types.Message):
     if not await is_chat_admin(message.from_user.id, message.chat.id):
-        await message.reply("❌ У тебя нет прав!")
+        await message.reply("❌ Нет прав!")
         return
     
     if not message.reply_to_message:
-        await message.reply("❗ Ответь на сообщение пользователя!")
+        await message.reply("❗ Ответь на сообщение!")
         return
     
     user = message.reply_to_message.from_user
-    await message.reply(f"⚠️ ПРЕДУПРЕЖДЕНИЕ {user.full_name}!\nСоблюдай правила чата!")
+    await message.reply(f"⚠️ ПРЕДУПРЕЖДЕНИЕ {user.full_name}!")
 
 @dp.message(Command("мут"))
 async def mute_user(message: types.Message):
     if not await is_chat_admin(message.from_user.id, message.chat.id):
-        await message.reply("❌ У тебя нет прав!")
+        await message.reply("❌ Нет прав!")
         return
     
     args = message.text.split()
     if len(args) < 3:
-        await message.reply("❗ Использование: /мут @username 10м (м - минуты, ч - часы, д - дни)")
-        return
-    
-    username = args[1].replace("@", "")
-    time_str = args[2]
-    
-    if time_str.endswith("м"):
-        minutes = int(time_str[:-1])
-        seconds = minutes * 60
-        text_time = f"{minutes} минут"
-    elif time_str.endswith("ч"):
-        hours = int(time_str[:-1])
-        seconds = hours * 3600
-        text_time = f"{hours} часов"
-    elif time_str.endswith("д"):
-        days = int(time_str[:-1])
-        seconds = days * 86400
-        text_time = f"{days} дней"
-    else:
-        await message.reply("❗ Неверный формат. Примеры: 10м, 2ч, 1д")
+        await message.reply("❗ /мут @ник 10м (м,ч,д)")
         return
     
     try:
-        chat_member = await bot.get_chat_member(message.chat.id, f"@{username}")
-        user_id = chat_member.user.id
-        name = chat_member.user.full_name
+        member = await bot.get_chat_member(message.chat.id, args[1])
+        time_str = args[2]
         
-        muted_users[user_id] = datetime.now() + timedelta(seconds=seconds)
+        if time_str.endswith("м"):
+            seconds = int(time_str[:-1]) * 60
+            text_time = f"{int(time_str[:-1])} минут"
+        elif time_str.endswith("ч"):
+            seconds = int(time_str[:-1]) * 3600
+            text_time = f"{int(time_str[:-1])} часов"
+        elif time_str.endswith("д"):
+            seconds = int(time_str[:-1]) * 86400
+            text_time = f"{int(time_str[:-1])} дней"
+        else:
+            await message.reply("❗ Формат: 10м, 2ч, 1д")
+            return
+        
+        muted_users[member.user.id] = datetime.now() + timedelta(seconds=seconds)
         
         await bot.restrict_chat_member(
-            message.chat.id, user_id,
+            message.chat.id, member.user.id,
             permissions=types.ChatPermissions(can_send_messages=False)
         )
         
-        await message.reply(f"🔇 {name} замучен на {text_time}!")
+        await message.reply(f"🔇 {member.user.full_name} замучен на {text_time}!")
         
-        async def auto_unmute():
-            await asyncio.sleep(seconds)
-            if user_id in muted_users and muted_users[user_id] <= datetime.now():
-                try:
-                    await bot.restrict_chat_member(
-                        message.chat.id, user_id,
-                        permissions=types.ChatPermissions(can_send_messages=True)
-                    )
-                    await message.answer(f"🔊 {name} размучен автоматически.")
-                    del muted_users[user_id]
-                except:
-                    pass
-        
-        asyncio.create_task(auto_unmute())
-            
     except Exception as e:
-        await message.reply(f"❌ Ошибка: {e}")
+        await message.reply(f"❌ {e}")
 
 @dp.message(Command("размут"))
 async def unmute_user(message: types.Message):
     if not await is_chat_admin(message.from_user.id, message.chat.id):
-        await message.reply("❌ У тебя нет прав!")
+        await message.reply("❌ Нет прав!")
         return
     
     args = message.text.split()
     if len(args) < 2:
-        await message.reply("❗ Использование: /размут @username")
+        await message.reply("❗ /размут @ник")
         return
     
-    username = args[1].replace("@", "")
     try:
-        chat_member = await bot.get_chat_member(message.chat.id, f"@{username}")
-        user_id = chat_member.user.id
-        name = chat_member.user.full_name
+        member = await bot.get_chat_member(message.chat.id, args[1])
         
-        if user_id in muted_users:
-            del muted_users[user_id]
+        if member.user.id in muted_users:
+            del muted_users[member.user.id]
         
         await bot.restrict_chat_member(
-            message.chat.id, user_id,
+            message.chat.id, member.user.id,
             permissions=types.ChatPermissions(can_send_messages=True)
         )
-        await message.reply(f"🔊 {name} размучен!")
+        await message.reply(f"🔊 {member.user.full_name} размучен!")
     except Exception as e:
-        await message.reply(f"❌ Ошибка: {e}")
+        await message.reply(f"❌ {e}")
 
 @dp.message(Command("инфо"))
 async def user_info(message: types.Message):
     if not await is_chat_admin(message.from_user.id, message.chat.id):
-        await message.reply("❌ У тебя нет прав!")
+        await message.reply("❌ Нет прав!")
         return
     
     if message.reply_to_message:
@@ -589,142 +478,71 @@ async def user_info(message: types.Message):
     else:
         args = message.text.split()
         if len(args) < 2:
-            await message.reply("❗ Использование: /инфо @username или ответь на сообщение")
+            await message.reply("❗ /инфо @ник")
             return
-        username = args[1].replace("@", "")
         try:
-            chat_member = await bot.get_chat_member(message.chat.id, f"@{username}")
-            user = chat_member.user
+            member = await bot.get_chat_member(message.chat.id, args[1])
+            user = member.user
         except:
-            await message.reply(f"❌ Не могу найти @{username}")
+            await message.reply(f"❌ Не найден!")
             return
     
-    info = (
-        f"📝 ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ:\n\n"
-        f"👤 Имя: {user.full_name}\n"
-        f"🆔 ID: {user.id}\n"
-        f"📛 Username: @{user.username if user.username else 'нет'}\n"
+    await message.reply(
+        f"📝 ИНФО:\n\n"
+        f"👤 {user.full_name}\n"
+        f"🆔 {user.id}\n"
+        f"📛 @{user.username if user.username else 'нет'}"
     )
-    await message.reply(info)
 
 @dp.message(Command("запрет"))
 async def ban_word(message: types.Message):
     if not await is_chat_admin(message.from_user.id, message.chat.id):
-        await message.reply("❌ У тебя нет прав!")
+        await message.reply("❌ Нет прав!")
         return
     
     args = message.text.split()
     if len(args) < 2:
-        await message.reply("❗ Использование: /запрет слово")
+        await message.reply("❗ /запрет слово")
         return
     
     word = args[1].lower()
     if word not in banned_words:
         banned_words.append(word)
-        await message.reply(f"✅ Слово '{word}' добавлено в чёрный список!")
+        await message.reply(f"✅ Слово '{word}' запрещено!")
     else:
-        await message.reply(f"⚠️ Слово '{word}' уже в чёрном списке!")
+        await message.reply(f"⚠️ Уже запрещено!")
 
 @dp.message(Command("разрешить"))
 async def unban_word(message: types.Message):
     if not await is_chat_admin(message.from_user.id, message.chat.id):
-        await message.reply("❌ У тебя нет прав!")
+        await message.reply("❌ Нет прав!")
         return
     
     args = message.text.split()
     if len(args) < 2:
-        await message.reply("❗ Использование: /разрешить слово")
+        await message.reply("❗ /разрешить слово")
         return
     
     word = args[1].lower()
     if word in banned_words:
         banned_words.remove(word)
-        await message.reply(f"✅ Слово '{word}' удалено из чёрного списка!")
+        await message.reply(f"✅ Слово '{word}' разрешено!")
     else:
-        await message.reply(f"⚠️ Слово '{word}' не найдено в чёрном списке!")
-
-@dp.message(Command("правила"))
-async def rules(message: types.Message):
-    await message.reply(
-        "📜 ПРАВИЛА ЧАТА:\n\n"
-        "1️⃣ Без оскорблений\n"
-        "2️⃣ Без спама\n"
-        "3️⃣ Без рекламы\n"
-        "4️⃣ Уважайте друг друга\n"
-        "5️⃣ Слушайтесь админов\n\n"
-        "Нарушители будут наказаны!"
-    )
-
-@dp.message(Command("help"))
-async def help_cmd(message: types.Message):
-    await message.reply(
-        "🐍 КОМАНДЫ ЗМЕЯ:\n\n"
-        "💕 ШИППЕРИНГ И СВАДЬБЫ:\n"
-        "/шиперить - Рандомный шипп из чата 🎲\n"
-        "/шипнуть @ник1 @ник2 - Шиппнуть конкретных\n"
-        "/шиппы - Все шиппы\n"
-        "/женится @ник1 @ник2 - Поженить двух\n"
-        "/развод @ник1 @ник2 - Развести\n"
-        "/женатые - Все браки\n\n"
-        "👑 АДМИНИСТРИРОВАНИЕ:\n"
-        "/включить - Включить бота\n"
-        "/отключить - Выключить бота\n"
-        "/статус - Статус бота\n"
-        "/myid - Твой ID\n"
-        "/убрать @ник - Кикнуть\n"
-        "/бан @ник - Забанить\n"
-        "/очистить N - Очистить\n"
-        "/варн - Предупреждение\n"
-        "/мут @ник время - Замутить\n"
-        "/размут @ник - Снять мут\n"
-        "/запрет слово - Запретить слово\n"
-        "/разрешить слово - Разрешить\n"
-        "/инфо @ник - Инфо\n\n"
-        "📊 ИНФОРМАЦИЯ:\n"
-        "/mods - Моды\n"
-        "/stats - Статистика\n"
-        "/creator - Создатель\n"
-        "/ping - Пинг"
-    )
-
-@dp.message(Command("ping"))
-async def ping(message: types.Message):
-    start = datetime.now()
-    msg = await message.answer("🏓 Понг...")
-    end = datetime.now()
-    latency = (end - start).total_seconds() * 1000
-    await msg.edit_text(f"🏓 Понг! Задержка: {int(latency)}мс")
+        await message.reply(f"⚠️ Не найдено!")
 
 @dp.message(Command("mods"))
 async def mods_cmd(message: types.Message):
-    MODS = [
-        "Зайчик", "Другая История", "Зайчик История Алисы",
-        "Зайчик Зов Лесного Кошмара", "Зайчик Зазеркалье", "Зайчик Оковы Тьмы",
-        "Зайчик Осколки Души", "Зайчик Мелодия Любви", "Зайчик Змей",
-        "Зайчик Я не изгой", "Зайчик Направление Сердца", "Зайчик Овечья Шкура",
-        "Зайчик Иной Финал", "Зайчик Равновесие", "Зайчик Путь Истины",
-        "Зайчик Невысказанное", "Зайчик в Тумане", "Зайчик Лето"
-    ]
-    mods_list = "\n".join([f"• {m}" for m in MODS])
-    await message.answer(f"📚 МОДЫ:\n\n{mods_list}")
+    mods = ["Зайчик", "Другая История", "Зайчик Змей"]
+    await message.answer("📚 МОДЫ:\n\n" + "\n".join([f"• {m}" for m in mods]))
 
 @dp.message(Command("stats"))
 async def stats_cmd(message: types.Message):
-    MODS = [
-        "Зайчик", "Другая История", "Зайчик История Алисы",
-        "Зайчик Зов Лесного Кошмара", "Зайчик Зазеркалье", "Зайчик Оковы Тьмы",
-        "Зайчик Осколки Души", "Зайчик Мелодия Любви", "Зайчик Змей",
-        "Зайчик Я не изгой", "Зайчик Направление Сердца", "Зайчик Овечья Шкура",
-        "Зайчик Иной Финал", "Зайчик Равновесие", "Зайчик Путь Истины",
-        "Зайчик Невысказанное", "Зайчик в Тумане", "Зайчик Лето"
-    ]
     await message.answer(
         f"📊 СТАТИСТИКА:\n"
-        f"🐍 Модов: {len(MODS)}\n"
-        f"🔞 Запрещённых слов: {len(banned_words)}\n"
-        f"🔇 Замученных: {len(muted_users)}\n"
         f"💕 Шиппов: {len(shipped_couples)}\n"
         f"💍 Браков: {len(married_couples)}\n"
+        f"🔞 Слов в бане: {len(banned_words)}\n"
+        f"🔇 Замученных: {len(muted_users)}\n"
         f"💬 Статус: {'🟢 РАБОТАЮ' if bot_enabled else '🔴 ОТКЛЮЧЁН'}"
     )
 
@@ -732,107 +550,107 @@ async def stats_cmd(message: types.Message):
 async def creator_cmd(message: types.Message):
     await message.answer("👑 СОЗДАТЕЛЬ - ЛЕГЕНДА! 🔥")
 
+@dp.message(Command("help"))
+async def help_cmd(message: types.Message):
+    await message.reply(
+        "🐍 КОМАНДЫ ЗМЕЯ:\n\n"
+        "💕 ЛЮБОВЬ:\n"
+        "/шиперить - Рандомный шипп\n"
+        "/шипнуть @ник1 @ник2 - Конкретный шипп\n"
+        "/шиппы - Все шиппы\n"
+        "/женится @ник1 @ник2 - Поженить\n"
+        "/развод @ник1 @ник2 - Развести\n"
+        "/женатые - Все браки\n\n"
+        "👑 АДМИН:\n"
+        "/включить, /отключить, /статус\n"
+        "/убрать @ник, /бан @ник\n"
+        "/очистить N, /варн\n"
+        "/мут @ник 10м, /размут @ник\n"
+        "/запрет слово, /разрешить слово\n"
+        "/инфо @ник, /myid\n\n"
+        "📊 ДРУГОЕ:\n"
+        "/mods, /stats, /creator, /ping, /help"
+    )
+
 # ========== ОБРАБОТЧИК ВСЕХ СООБЩЕНИЙ ==========
 @dp.message(F.text)
 async def handle_all_messages(message: types.Message):
     global bot_enabled, TARGET_USER_ID
     
-    if not bot_enabled:
-        return
-    
+    # ПРОВЕРЯЕМ НОВЫХ УЧАСТНИКОВ
     if message.new_chat_members:
         for member in message.new_chat_members:
             if member.id != bot.id:
                 await message.reply(f"🐍 Добро пожаловать, {member.full_name}!")
         return
     
+    if not bot_enabled:
+        return
+    
     user = message.from_user
     text = message.text.lower().strip() if message.text else ""
     
-    # Контроль над Витей
+    # КОНТРОЛЬ НАД ВИТЕЙ
     if is_target_user(user.id, user.username, user.first_name):
         TARGET_USER_ID = user.id
         
-        TARGET_RESPONSES = [
+        responses = [
             "Витя, не пиши ерунду! 😠",
             "тяви, прекрати! 👀",
             "@Zakuback, ты меня бесишь! 🤬",
             "Витя, иди учи уроки! 📚",
             "тяви, молчи уже! 🤐",
-            "@Zakuback, заткнись! 🔇",
-            "Витя, ты вообще адекватный? 🤔",
-            "тяви, прекрати позориться! 😤",
-            "@Zakuback, будь человеком! 🧑",
-            "Витя, тебе заняться нечем? 💀"
+            "@Zakuback, заткнись! 🔇"
         ]
         
-        TARGET_SPECIAL = {
-            "привет": ["Витя, иди нафиг! 👋", "тяви, не приветствуй меня!"],
-            "как дела": ["Витя, а мне похер!", "тяви, не твое дело!"],
-            "пока": ["Вали, Витя! 🚪", "иди нафиг, @Zakuback!"],
+        special = {
+            "привет": ["Витя, иди нафиг! 👋"],
+            "как дела": ["Витя, а мне похер!"],
+            "пока": ["Вали, Витя! 🚪"]
         }
         
-        for key in TARGET_SPECIAL:
+        for key in special:
             if key in text:
-                await message.reply(random.choice(TARGET_SPECIAL[key]))
+                await message.reply(random.choice(special[key]))
                 return
         
-        await message.reply(random.choice(TARGET_RESPONSES))
+        await message.reply(random.choice(responses))
         return
     
-    # Проверка на мут
+    # ПРОВЕРКА НА МУТ
     if user.id in muted_users:
         if muted_users[user.id] > datetime.now():
             await message.delete()
-            await message.answer(f"🔇 {user.full_name}, вы замучены и не можете писать!")
+            await message.answer(f"🔇 {user.full_name}, вы замучены!")
             return
         else:
             del muted_users[user.id]
     
-    # Проверка на запрещённые слова
+    # ПРОВЕРКА НА ЗАПРЕЩЁННЫЕ СЛОВА
     for word in banned_words:
         if word in text:
             await message.delete()
             await message.answer(f"⚠️ {user.full_name}, слово '{word}' запрещено!")
             return
     
-    # Обычные ответы
-    MODS = [
-        "Зайчик", "Другая История", "Зайчик История Алисы",
-        "Зайчик Зов Лесного Кошмара", "Зайчик Зазеркалье", "Зайчик Оковы Тьмы",
-        "Зайчик Осколки Души", "Зайчик Мелодия Любви", "Зайчик Змей",
-        "Зайчик Я не изгой", "Зайчик Направление Сердца", "Зайчик Овечья Шкура",
-        "Зайчик Иной Финал", "Зайчик Равновесие", "Зайчик Путь Истины",
-        "Зайчик Невысказанное", "Зайчик в Тумане", "Зайчик Лето"
-    ]
-    
-    for mod in MODS:
-        if mod.lower() in text:
-            await message.answer(f"О, {mod}! Классный мод! 🔥")
-            return
-    
-    BASIC_ANSWERS = {
-        "привет": ["Привет, зайка! 🐍", "Здарова, пушистый! 👋", "Приветик! 😊"],
-        "как дела": ["Норм, а у тебя?", "Отлично, рассказывай!", "Хорошо, сам как?"],
-        "пока": ["Пока, зайка! 👋", "До встречи!", "Пока-пока!"],
-        "спасибо": ["Пожалуйста! 😊", "Не за что!", "Всегда рад помочь!"],
-        "люблю": ["И я тебя люблю! 💖", "Ой, спасибо!"],
+    # ОБЫЧНЫЕ ОТВЕТЫ
+    answers = {
+        "привет": ["Привет, зайка! 🐍", "Здарова! 👋"],
+        "как дела": ["Норм, а у тебя?", "Отлично!"],
+        "пока": ["Пока! 👋", "До встречи!"],
+        "спасибо": ["Пожалуйста! 😊", "Не за что!"],
+        "люблю": ["И я тебя люблю! 💖", "❤️"]
     }
     
-    for key in BASIC_ANSWERS:
+    for key in answers:
         if key in text:
-            await message.answer(random.choice(BASIC_ANSWERS[key]))
+            await message.answer(random.choice(answers[key]))
             return
     
-    EXTRA = [
-        "Интересно! Продолжай!",
-        "Я слушаю тебя! 👂",
-        "Ну и что дальше?",
-        "Расскажи подробнее!",
-        "Змей внимает тебе!"
-    ]
+    # СЛУЧАЙНЫЙ ОТВЕТ (30% шанс)
     if random.random() < 0.3:
-        await message.answer(random.choice(EXTRA))
+        extra = ["Интересно!", "Продолжай!", "Я слушаю!"]
+        await message.answer(random.choice(extra))
 
 # ========== ЗАПУСК ==========
 async def main():
@@ -840,8 +658,6 @@ async def main():
     print("🐍 ЗМЕЙ ЗАПУЩЕН!")
     print(f"👑 Админ ID: {REAL_ADMIN_ID}")
     print("🎯 Цель: Витя (@Zakuback, тяви)")
-    print("💕 Шипперинг: рандомный и по никам")
-    print("💍 Свадьбы: по двум никам")
     print("📋 Команды: /help")
     print("=" * 60)
     
