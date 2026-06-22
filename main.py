@@ -13,12 +13,21 @@ bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
 # ========== ТВОЙ РЕАЛЬНЫЙ ID ==========
-REAL_ADMIN_ID = 8199816124  # УБЕДИСЬ, ЧТО ЭТО ТОЧНЫЙ ID!
+REAL_ADMIN_ID = 8199816124
 
 # ========== ЦЕЛЕВОЙ ПОЛЬЗОВАТЕЛЬ ДЛЯ КОНТРОЛЯ ==========
 TARGET_USER_ID = None
 TARGET_USERNAME = "Zakuback"
 TARGET_FIRST_NAME = "тяви"
+
+# ========== ХРАНИЛИЩА ==========
+banned_words = []
+muted_users = {}
+bot_enabled = True
+
+# ========== ХРАНИЛИЩЕ ДЛЯ ШИППЕРИНГА И СВАДЕБ ==========
+shipped_couples = []  # Список шиппов
+married_couples = []  # Список женатых пар
 
 # ========== ПРОВЕРКА ПРАВ ==========
 async def is_chat_admin(user_id: int, chat_id: int) -> bool:
@@ -40,11 +49,6 @@ def is_target_user(user_id: int, username: str = None, first_name: str = None) -
     if first_name and first_name.lower() == TARGET_FIRST_NAME.lower():
         return True
     return False
-
-# ========== ХРАНИЛИЩА ==========
-banned_words = []
-muted_users = {}
-bot_enabled = True
 
 # ========== ВЕБ-СЕРВЕР ==========
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -73,6 +77,246 @@ async def show_my_id(message: types.Message):
         f"✅ СОВПАДАЕТ? {user_id == REAL_ADMIN_ID}\n"
         f"🤖 БОТ ВКЛЮЧЁН? {bot_enabled}"
     )
+
+# ========== КОМАНДЫ ШИППЕРИНГА (РАНДОМНЫЕ) ==========
+@dp.message(Command("шиперить"))
+async def ship_random(message: types.Message):
+    """Рандомно шиперит двух пользователей из чата"""
+    try:
+        # Получаем список участников чата
+        chat_members = []
+        async for member in bot.get_chat_administrators(message.chat.id):
+            chat_members.append(member.user)
+        
+        # Добавляем обычных пользователей (ограничимся 50 чтобы не грузить)
+        offset = 0
+        while len(chat_members) < 50:
+            try:
+                members = await bot.get_chat_members(message.chat.id, offset=offset)
+                if not members:
+                    break
+                for member in members:
+                    if not member.user.is_bot and member.user.id not in [u.id for u in chat_members]:
+                        chat_members.append(member.user)
+                offset += len(members)
+            except:
+                break
+        
+        # Фильтруем ботов
+        chat_members = [u for u in chat_members if not u.is_bot]
+        
+        if len(chat_members) < 2:
+            await message.reply("😅 В чате太少 людей для шипперинга! Нужно минимум 2 человека.")
+            return
+        
+        # Выбираем двух случайных разных пользователей
+        user1, user2 = random.sample(chat_members, 2)
+        
+        # Проверяем, не являются ли они уже шиппом
+        for ship in shipped_couples:
+            if (ship["user1_id"] == user1.id and ship["user2_id"] == user2.id) or \
+               (ship["user1_id"] == user2.id and ship["user2_id"] == user1.id):
+                await message.reply(f"😏 {user1.full_name} и {user2.full_name} уже шипп! 🔥")
+                return
+        
+        # Создаём шипп
+        ship_names = [
+            f"{user1.first_name}💕{user2.first_name}",
+            f"{user1.first_name}❤️{user2.first_name}",
+            f"{user1.first_name}🔥{user2.first_name}",
+            f"{user1.first_name}⭐{user2.first_name}",
+            f"{user1.first_name}🌈{user2.first_name}",
+            f"{user1.first_name}💘{user2.first_name}",
+            f"{user1.first_name}✨{user2.first_name}"
+        ]
+        ship_name = random.choice(ship_names)
+        
+        # Сохраняем шипп
+        shipped_couples.append({
+            "ship_name": ship_name,
+            "user1_id": user1.id,
+            "user1_name": user1.full_name,
+            "user2_id": user2.id,
+            "user2_name": user2.full_name,
+            "date": datetime.now().strftime("%d.%m.%Y")
+        })
+        
+        # Красивое сообщение
+        messages = [
+            f"🐍 ЗМЕЙ ШИППЕРИТ РАНДОМНО! 🎲\n\n💕 {user1.full_name} и {user2.full_name} - ИДЕАЛЬНАЯ ПАРА! 💕\n\nОни созданы друг для друга! 🔥\n\n💞 Название шиппа: {ship_name}",
+            f"🎲 СЛУЧАЙНЫЙ ШИПП ОТ ЗМЕЯ! 🐍\n\n💞 {user1.full_name} + {user2.full_name} = ЛЮБОВЬ! 💞\n\nЭто судьба! 🌟\n\n🔥 Шипп: {ship_name}",
+            f"🐍 ЗМЕЙ ВИДИТ ИСКРЫ МЕЖДУ:\n\n💗 {user1.full_name} 💗 {user2.full_name} 💗\n\nМежду ними определённо что-то есть! 😏\n\n{ship_name} - навсегда!",
+            f"🎯 РАНДОМНЫЙ ШИПП! 🎯\n\n💖 {user1.full_name} 💖 {user2.full_name} 💖\n\nОни будут вместе! Так сказал Змей! 👑\n\n{ship_name} FOREVER!"
+        ]
+        
+        await message.reply(random.choice(messages))
+        
+    except Exception as e:
+        await message.reply(f"❌ Ошибка: {e}")
+
+@dp.message(Command("шипнуть"))
+async def ship_specific(message: types.Message):
+    """Шиперит конкретных пользователей"""
+    args = message.text.split()
+    if len(args) < 3:
+        await message.reply("❗ Использование: /шипнуть @ник1 @ник2\nПример: /шипнуть @Змей @Зайчик")
+        return
+    
+    user1_name = args[1].replace("@", "")
+    user2_name = args[2].replace("@", "")
+    
+    # Пытаемся найти пользователей
+    try:
+        user1 = await bot.get_chat_member(message.chat.id, f"@{user1_name}")
+        user2 = await bot.get_chat_member(message.chat.id, f"@{user2_name}")
+        
+        user1_full = user1.user.full_name
+        user2_full = user2.user.full_name
+        
+        # Проверяем существующий шипп
+        for ship in shipped_couples:
+            if (ship["user1_id"] == user1.user.id and ship["user2_id"] == user2.user.id) or \
+               (ship["user1_id"] == user2.user.id and ship["user2_id"] == user1.user.id):
+                await message.reply(f"😏 {user1_full} и {user2_full} уже шипп! 🔥")
+                return
+        
+        ship_names = [
+            f"{user1_full}💕{user2_full}",
+            f"{user1_full}❤️{user2_full}",
+            f"{user1_full}🔥{user2_full}",
+            f"{user1_full}⭐{user2_full}",
+            f"{user1_full}🌈{user2_full}"
+        ]
+        ship_name = random.choice(ship_names)
+        
+        shipped_couples.append({
+            "ship_name": ship_name,
+            "user1_id": user1.user.id,
+            "user1_name": user1_full,
+            "user2_id": user2.user.id,
+            "user2_name": user2_full,
+            "date": datetime.now().strftime("%d.%m.%Y")
+        })
+        
+        await message.reply(
+            f"🐍 ЗМЕЙ ШИППНУЛ! 🐍\n\n"
+            f"💕 {user1_full} и {user2_full} - ТЕПЕРЬ ШИПП! 💕\n\n"
+            f"🔥 Название: {ship_name}"
+        )
+        
+    except Exception as e:
+        await message.reply(f"❌ Не могу найти пользователей: {e}")
+
+@dp.message(Command("шиппы"))
+async def show_ships(message: types.Message):
+    """Показывает все шиппы"""
+    if not shipped_couples:
+        await message.reply("😔 Пока нет ни одного шиппа!\n\nСоздай командой:\n/шиперить - рандомный шипп\n/шипнуть @ник1 @ник2 - конкретный шипп")
+        return
+    
+    ships_list = "🐍 ВСЕ ШИППЫ ЗМЕЯ:\n\n"
+    for i, ship in enumerate(shipped_couples, 1):
+        ships_list += f"{i}. {ship['ship_name']} 💕\n"
+        ships_list += f"   👤 {ship['user1_name']} + {ship['user2_name']}\n"
+        ships_list += f"   📅 {ship['date']}\n\n"
+    
+    await message.reply(ships_list)
+
+# ========== КОМАНДЫ СВАДЬБЫ (ПО ДВУМ НИКАМ) ==========
+@dp.message(Command("женится"))
+async def marry_users(message: types.Message):
+    """Женит двух пользователей по никам"""
+    args = message.text.split()
+    if len(args) < 3:
+        await message.reply("❗ Использование: /женится @ник1 @ник2\nПример: /женится @Змей @Зайчик")
+        return
+    
+    user1_name = args[1].replace("@", "")
+    user2_name = args[2].replace("@", "")
+    
+    # Проверяем, не женаты ли уже
+    for couple in married_couples:
+        if (couple["user1"] == user1_name and couple["user2"] == user2_name) or \
+           (couple["user1"] == user2_name and couple["user2"] == user1_name):
+            await message.reply(f"😅 {user1_name} и {user2_name} уже женаты!")
+            return
+    
+    # Пытаемся найти пользователей
+    try:
+        user1 = await bot.get_chat_member(message.chat.id, f"@{user1_name}")
+        user2 = await bot.get_chat_member(message.chat.id, f"@{user2_name}")
+        
+        user1_full = user1.user.full_name
+        user2_full = user2.user.full_name
+        
+        # Сохраняем брак
+        married_couples.append({
+            "user1": user1_name,
+            "user1_id": user1.user.id,
+            "user1_full": user1_full,
+            "user2": user2_name,
+            "user2_id": user2.user.id,
+            "user2_full": user2_full,
+            "date": datetime.now().strftime("%d.%m.%Y")
+        })
+        
+        # Поздравления
+        congrats = [
+            f"💍 СВАДЬБА! 💍\n\n{user1_full} и {user2_full} теперь МУЖ И ЖЕНА! 💑\n\nЗмей благословляет этот брак! 🐍✨\n\nЛюбви и счастья! ❤️",
+            f"💞 СВЕРШИЛОСЬ! 💞\n\n{user1_full} и {user2_full} теперь СЕМЬЯ! 🏠\n\nЗмей рад за вас! 🐍\n\nСовет да любовь! ❤️",
+            f"🎊 ЕЩЁ ОДНА СВАДЬБА! 🎊\n\n{user1_full} 💍 {user2_full}\n\nТеперь они вместе навсегда! 💕\n\nТак сказал Змей! 👑"
+        ]
+        
+        await message.reply(random.choice(congrats))
+        
+    except Exception as e:
+        await message.reply(f"❌ Ошибка: {e}")
+
+@dp.message(Command("развод"))
+async def divorce_users(message: types.Message):
+    """Разводит двух пользователей"""
+    args = message.text.split()
+    if len(args) < 3:
+        await message.reply("❗ Использование: /развод @ник1 @ник2\nПример: /развод @Змей @Зайчик")
+        return
+    
+    user1_name = args[1].replace("@", "")
+    user2_name = args[2].replace("@", "")
+    
+    # Ищем брак
+    found = False
+    for couple in married_couples:
+        if (couple["user1"] == user1_name and couple["user2"] == user2_name) or \
+           (couple["user1"] == user2_name and couple["user2"] == user1_name):
+            married_couples.remove(couple)
+            found = True
+            break
+    
+    if not found:
+        await message.reply(f"😅 {user1_name} и {user2_name} не состоят в браке!")
+        return
+    
+    divorce_msgs = [
+        f"💔 {user1_name} и {user2_name} развелись!\n\nЗмей грустит... но это их выбор! 🐍",
+        f"😔 Брак {user1_name} и {user2_name} расторгнут!\n\nЗмей надеется, что вы найдёте счастье! 🌟",
+        f"💀 {user1_name} и {user2_name} развелись!\n\nЗмей не судит! ❤️"
+    ]
+    
+    await message.reply(random.choice(divorce_msgs))
+
+@dp.message(Command("женатые"))
+async def show_married(message: types.Message):
+    """Показывает все браки"""
+    if not married_couples:
+        await message.reply("😔 Пока нет ни одной свадьбы! Создайте первую командой:\n/женится @ник1 @ник2")
+        return
+    
+    married_list = "💍 ВСЕ БРАКИ ЗМЕЯ:\n\n"
+    for i, couple in enumerate(married_couples, 1):
+        married_list += f"{i}. {couple['user1_full']} 💍 {couple['user2_full']}\n"
+        married_list += f"   📅 {couple['date']}\n\n"
+    
+    await message.reply(married_list)
 
 # ========== КОМАНДЫ АДМИНИСТРИРОВАНИЯ ==========
 @dp.message(Command("включить"))
@@ -391,27 +635,32 @@ async def rules(message: types.Message):
 async def help_cmd(message: types.Message):
     await message.reply(
         "🐍 КОМАНДЫ ЗМЕЯ:\n\n"
+        "💕 ШИППЕРИНГ И СВАДЬБЫ:\n"
+        "/шиперить - Рандомный шипп из чата 🎲\n"
+        "/шипнуть @ник1 @ник2 - Шиппнуть конкретных\n"
+        "/шиппы - Все шиппы\n"
+        "/женится @ник1 @ник2 - Поженить двух\n"
+        "/развод @ник1 @ник2 - Развести\n"
+        "/женатые - Все браки\n\n"
         "👑 АДМИНИСТРИРОВАНИЕ:\n"
         "/включить - Включить бота\n"
         "/отключить - Выключить бота\n"
         "/статус - Статус бота\n"
-        "/myid - Показать твой ID\n"
+        "/myid - Твой ID\n"
         "/убрать @ник - Кикнуть\n"
         "/бан @ник - Забанить\n"
-        "/очистить N - Очистить N сообщений\n"
+        "/очистить N - Очистить\n"
         "/варн - Предупреждение\n"
-        "/мут @ник время - Замутить (10м, 2ч, 1д)\n"
+        "/мут @ник время - Замутить\n"
         "/размут @ник - Снять мут\n"
         "/запрет слово - Запретить слово\n"
-        "/разрешить слово - Разрешить слово\n"
-        "/инфо @ник - Инфо о пользователе\n\n"
+        "/разрешить слово - Разрешить\n"
+        "/инфо @ник - Инфо\n\n"
         "📊 ИНФОРМАЦИЯ:\n"
-        "/mods - Все моды\n"
+        "/mods - Моды\n"
         "/stats - Статистика\n"
-        "/creator - О создателе\n"
-        "/ping - Проверить бота\n\n"
-        "💬 ПРОСТО НАПИШИ:\n"
-        "Привет, как дела, пока, спасибо, люблю тебя, название мода"
+        "/creator - Создатель\n"
+        "/ping - Пинг"
     )
 
 @dp.message(Command("ping"))
@@ -450,6 +699,8 @@ async def stats_cmd(message: types.Message):
         f"🐍 Модов: {len(MODS)}\n"
         f"🔞 Запрещённых слов: {len(banned_words)}\n"
         f"🔇 Замученных: {len(muted_users)}\n"
+        f"💕 Шиппов: {len(shipped_couples)}\n"
+        f"💍 Браков: {len(married_couples)}\n"
         f"💬 Статус: {'🟢 РАБОТАЮ' if bot_enabled else '🔴 ОТКЛЮЧЁН'}"
     )
 
@@ -457,7 +708,7 @@ async def stats_cmd(message: types.Message):
 async def creator_cmd(message: types.Message):
     await message.answer("👑 СОЗДАТЕЛЬ - ЛЕГЕНДА! 🔥")
 
-# ========== ОБРАБОТЧИК ВСЕХ СООБЩЕНИЙ (ОДИН!) ==========
+# ========== ОБРАБОТЧИК ВСЕХ СООБЩЕНИЙ ==========
 @dp.message(F.text)
 async def handle_all_messages(message: types.Message):
     global bot_enabled, TARGET_USER_ID
@@ -465,7 +716,6 @@ async def handle_all_messages(message: types.Message):
     if not bot_enabled:
         return
     
-    # 1. Проверка на новых участников
     if message.new_chat_members:
         for member in message.new_chat_members:
             if member.id != bot.id:
@@ -475,7 +725,7 @@ async def handle_all_messages(message: types.Message):
     user = message.from_user
     text = message.text.lower().strip() if message.text else ""
     
-    # 2. Проверка на целевого пользователя (Витя)
+    # Контроль над Витей
     if is_target_user(user.id, user.username, user.first_name):
         TARGET_USER_ID = user.id
         
@@ -506,7 +756,7 @@ async def handle_all_messages(message: types.Message):
         await message.reply(random.choice(TARGET_RESPONSES))
         return
     
-    # 3. Проверка на мут
+    # Проверка на мут
     if user.id in muted_users:
         if muted_users[user.id] > datetime.now():
             await message.delete()
@@ -515,14 +765,14 @@ async def handle_all_messages(message: types.Message):
         else:
             del muted_users[user.id]
     
-    # 4. Проверка на запрещённые слова
+    # Проверка на запрещённые слова
     for word in banned_words:
         if word in text:
             await message.delete()
             await message.answer(f"⚠️ {user.full_name}, слово '{word}' запрещено!")
             return
     
-    # 5. Обычные ответы
+    # Обычные ответы
     MODS = [
         "Зайчик", "Другая История", "Зайчик История Алисы",
         "Зайчик Зов Лесного Кошмара", "Зайчик Зазеркалье", "Зайчик Оковы Тьмы",
@@ -550,7 +800,6 @@ async def handle_all_messages(message: types.Message):
             await message.answer(random.choice(BASIC_ANSWERS[key]))
             return
     
-    # Случайный ответ
     EXTRA = [
         "Интересно! Продолжай!",
         "Я слушаю тебя! 👂",
@@ -567,8 +816,9 @@ async def main():
     print("🐍 ЗМЕЙ ЗАПУЩЕН!")
     print(f"👑 Админ ID: {REAL_ADMIN_ID}")
     print("🎯 Цель: Витя (@Zakuback, тяви)")
+    print("💕 Шипперинг: рандомный и по никам")
+    print("💍 Свадьбы: по двум никам")
     print("📋 Команды: /help")
-    print("🔍 Диагностика: /myid")
     print("=" * 60)
     
     await bot.delete_webhook(drop_pending_updates=True)
